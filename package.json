@@ -7,6 +7,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "server": "nodemon src/index.js",
+    "start": "node src/index.js",
     "seed:all": "nodemon ./src/seeders/index.js",
     "seed:admin": "node src/seeders/adminSeeder.js"
   },
