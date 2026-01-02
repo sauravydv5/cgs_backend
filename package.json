@@ -1,0 +1,41 @@
+{
+  "name": "prontow-backend-nodejs",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "server": "nodemon src/index.js",
+    "seed:all": "nodemon ./src/seeders/index.js",
+    "seed:admin": "node src/seeders/adminSeeder.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rohitraj8802/Prontow-backend-nodejs.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/rohitraj8802/Prontow-backend-nodejs/issues"
+  },
+  "homepage": "https://github.com/rohitraj8802/Prontow-backend-nodejs#readme",
+  "dependencies": {
+    "@swc/helpers": "^0.5.17",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "express-validator": "^7.2.1",
+    "jsonwebtoken": "^9.0.2",
+    "moment": "^2.30.1",
+    "mongodb": "5.9.0",
+    "mongoose": "^8.20.1",
+    "multer": "^2.0.2",
+    "nodemon": "^3.1.11",
+    "pdfkit": "^0.17.2",
+    "razorpay": "^2.9.6",
+    "socket.io": "^4.8.1"
+  }
+}
