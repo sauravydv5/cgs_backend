@@ -4,6 +4,7 @@ import Product from "../models/product.js";
 import StockAlert from "../models/stock.js";
 import Purchase from "../models/purchase.js";
 import User from "../models/user.js";
+import { USER_ROLES } from "../constants/auth.js";
 
 export const getDashboardData = async (req, res) => {
   try {
@@ -12,22 +13,26 @@ export const getDashboardData = async (req, res) => {
     ========================== */
 
     // 💰 Total Sales (netAmount from Bill)
-    const totalSalesAgg = await Bill.aggregate([
-      {
-        $group: {
-          _id: null,
-          total: { $sum: "$netAmount" },
-        },
-      },
-    ]);
+   const totalSalesAgg = await Bill.aggregate([
+  { $unwind: "$items" },
+  {
+    $group: {
+      _id: null,
+      total: { $sum: "$items.taxableAmount" } // AMT AFT DIS
+    }
+  }
+]);
 
-    const totalSalesAmount = totalSalesAgg[0]?.total || 0;
+const totalSalesAmount = totalSalesAgg[0]?.total || 0;
 
     // 📦 Total Orders (Bills = Orders)
     const totalOrders = await Bill.countDocuments();
 
     // 👥 Active Customers (User model only)
-    const activeCustomers = await User.countDocuments();
+    const activeCustomers = await User.countDocuments({
+      role: USER_ROLES.CUSTOMER,
+      isBlocked: false,
+    });
 
     // ⚠️ Low Stock Products
     // Fetch threshold from settings, default to 10 if not set

@@ -33,10 +33,10 @@ const roleSchema = new mongoose.Schema(
       default: "Active",
     },
     permissions: {
-      type: [String], // dashboard, product, ledger...
+      type: [String],
       default: [],
     },
-    history: [roleHistorySchema], // 🔥 ROLE HISTORY
+    history: [roleHistorySchema],
   },
   { timestamps: true }
 );

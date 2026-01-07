@@ -10,11 +10,15 @@ export const addProduct = async (req, res) => {
     const product = new Product({ ...rest, category });
     const savedProduct = await product.save();
     // Populate category to return the full object instead of just the ID
-    const populatedProduct = await Product.findById(savedProduct._id).populate("category");
+    const populatedProduct = await Product.findById(savedProduct._id).populate(
+      "category"
+    );
 
     return res
       .status(201)
-      .json(responseHandler.success(populatedProduct, "Product added successfully"));
+      .json(
+        responseHandler.success(populatedProduct, "Product added successfully")
+      );
   } catch (err) {
     return res.status(400).json(responseHandler.error(err.message));
   }
@@ -26,7 +30,9 @@ export const getProductById = async (req, res) => {
     const product = await Product.findById(req.params.id).populate("category");
     if (!product)
       return res.status(404).json(responseHandler.error("Product not found"));
-    return res.json(responseHandler.success(product, "Product retrieved successfully"));
+    return res.json(
+      responseHandler.success(product, "Product retrieved successfully")
+    );
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
   }
@@ -49,10 +55,13 @@ export const getLowStockProducts = async (req, res) => {
       .limit(20);
 
     return res.json(
-      responseHandler.success({
-        products,
-        settings
-      }, "Low stock products retrieved successfully")
+      responseHandler.success(
+        {
+          products,
+          settings,
+        },
+        "Low stock products retrieved successfully"
+      )
     );
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
@@ -63,7 +72,7 @@ export const getLowStockProducts = async (req, res) => {
 export const updateStockAlertSettings = async (req, res) => {
   try {
     const { threshold, emailAlert, pushAlert } = req.body;
-    
+
     let settings = await StockAlert.findOne();
     if (!settings) {
       settings = new StockAlert();
@@ -76,7 +85,10 @@ export const updateStockAlertSettings = async (req, res) => {
     await settings.save();
 
     return res.json(
-      responseHandler.success(settings, "Stock alert settings updated successfully")
+      responseHandler.success(
+        settings,
+        "Stock alert settings updated successfully"
+      )
     );
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
@@ -88,9 +100,16 @@ export const updateStock = async (req, res) => {
   try {
     const { id } = req.params;
     const { stock } = req.body;
-    const product = await Product.findByIdAndUpdate(id, { stock: Number(stock) }, { new: true });
-    if (!product) return res.status(404).json(responseHandler.error("Product not found"));
-    return res.json(responseHandler.success(product, "Stock updated successfully"));
+    const product = await Product.findByIdAndUpdate(
+      id,
+      { stock: Number(stock) },
+      { new: true }
+    );
+    if (!product)
+      return res.status(404).json(responseHandler.error("Product not found"));
+    return res.json(
+      responseHandler.success(product, "Stock updated successfully")
+    );
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
   }
@@ -109,7 +128,7 @@ export const getAllProducts = async (req, res) => {
       minPrice,
       maxPrice,
       discount,
-      search
+      search,
     } = req.query;
 
     // Build filter
@@ -186,7 +205,9 @@ export const updateProduct = async (req, res) => {
 
     const updatedProduct = await product.save();
     // Re-populate the category field to ensure the full object is returned
-    const populatedProduct = await Product.findById(updatedProduct._id).populate("category");
+    const populatedProduct = await Product.findById(
+      updatedProduct._id
+    ).populate("category");
 
     return res.json(
       responseHandler.success(populatedProduct, "Product updated successfully")

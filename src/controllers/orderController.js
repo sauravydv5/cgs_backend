@@ -14,11 +14,13 @@ const getRazorpayInstance = () => {
   if (!razorpayInstance) {
     const keyId = process.env.RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
-    
+
     if (!keyId || !keySecret) {
-      throw new Error("Razorpay credentials are not configured. Please set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in your .env file");
+      throw new Error(
+        "Razorpay credentials are not configured. Please set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in your .env file"
+      );
     }
-    
+
     razorpayInstance = new Razorpay({
       key_id: keyId,
       key_secret: keySecret,
@@ -43,7 +45,9 @@ export const createOrder = async (req, res) => {
 
     if (!selectedAddressId) {
       // Use last order's address
-      const lastOrder = await Order.findOne({ user: userId }).sort({ createdAt: -1 });
+      const lastOrder = await Order.findOne({ user: userId }).sort({
+        createdAt: -1,
+      });
       if (lastOrder) {
         selectedAddressId = lastOrder.address.addressId;
       } else {
@@ -56,30 +60,50 @@ export const createOrder = async (req, res) => {
     }
 
     if (!selectedAddressId) {
-      return res.status(400).json(responseHandler.error("Please select an address before placing the order"));
+      return res
+        .status(400)
+        .json(
+          responseHandler.error(
+            "Please select an address before placing the order"
+          )
+        );
     }
 
     // 3️⃣ Validate address
-    const address = await Address.findOne({ _id: selectedAddressId, user: userId, deletedAt: null });
+    const address = await Address.findOne({
+      _id: selectedAddressId,
+      user: userId,
+      deletedAt: null,
+    });
     if (!address) {
-      return res.status(400).json(responseHandler.error("Selected address is invalid"));
+      return res
+        .status(400)
+        .json(responseHandler.error("Selected address is invalid"));
     }
 
     // Prioritize addressId from request body and update cart if different
-    if (req.body.addressId && cart.selectedAddress?.toString() !== req.body.addressId) {
-      const newAddress = await Address.findOne({ _id: req.body.addressId, user: userId, deletedAt: null });
+    if (
+      req.body.addressId &&
+      cart.selectedAddress?.toString() !== req.body.addressId
+    ) {
+      const newAddress = await Address.findOne({
+        _id: req.body.addressId,
+        user: userId,
+        deletedAt: null,
+      });
       if (!newAddress) {
-        return res.status(400).json(responseHandler.error("Address from request body is invalid"));
+        return res
+          .status(400)
+          .json(responseHandler.error("Address from request body is invalid"));
       }
 
       cart.selectedAddress = newAddress._id;
       await cart.save();
     }
 
-
     // 4️⃣ Map cart items to order items
     let totalPrice = 0;
-    const orderItems = cart.items.map(item => {
+    const orderItems = cart.items.map((item) => {
       const product = item.product;
 
       // Calculate discounted price + tax
@@ -90,15 +114,16 @@ export const createOrder = async (req, res) => {
         discountValue = product.discount || 0;
       }
 
-      const discountedPrice = product.mrp - (product.mrp * discountValue / 100);
-      const finalPrice = discountedPrice + (discountedPrice * (product.gst || 0) / 100);
+      const discountedPrice = product.mrp - (product.mrp * discountValue) / 100;
+      const finalPrice =
+        discountedPrice + (discountedPrice * (product.gst || 0)) / 100;
       totalPrice += item.quantity * finalPrice;
 
       return {
         productId: product._id,
         productName: product.productName,
         quantity: item.quantity,
-        price: finalPrice.toFixed(2)
+        price: finalPrice.toFixed(2),
       };
     });
 
@@ -114,19 +139,21 @@ export const createOrder = async (req, res) => {
         city: address.city,
         state: address.state,
         zip: address.zip,
-        country: address.country
+        country: address.country,
       },
       items: orderItems,
       totalPrice: totalPrice.toFixed(2),
       paymentMethod: paymentMethod,
       paymentStatus: "pending",
       tracking: {
-        timeline: [{
-          status: "Pending",
-          message: "Order placed and awaiting confirmation",
-          timestamp: new Date()
-        }]
-      }
+        timeline: [
+          {
+            status: "Pending",
+            message: "Order placed and awaiting confirmation",
+            timestamp: new Date(),
+          },
+        ],
+      },
     });
 
     await order.save();
@@ -141,8 +168,8 @@ export const createOrder = async (req, res) => {
           receipt: `order_${order._id}`,
           notes: {
             orderId: order._id.toString(),
-            userId: userId.toString()
-          }
+            userId: userId.toString(),
+          },
         });
 
         // Update order with Razorpay order ID
@@ -150,17 +177,28 @@ export const createOrder = async (req, res) => {
         await order.save();
 
         // Return order with Razorpay payment details
-        return res.status(201).json(responseHandler.success({
-          order: order,
-          razorpayOrderId: razorpayOrder.id,
-          amount: razorpayOrder.amount,
-          currency: razorpayOrder.currency,
-          key: process.env.RAZORPAY_KEY_ID
-        }, "Order created successfully. Please complete the payment."));
+        return res.status(201).json(
+          responseHandler.success(
+            {
+              order: order,
+              razorpayOrderId: razorpayOrder.id,
+              amount: razorpayOrder.amount,
+              currency: razorpayOrder.currency,
+              key: process.env.RAZORPAY_KEY_ID,
+            },
+            "Order created successfully. Please complete the payment."
+          )
+        );
       } catch (razorpayError) {
         // If Razorpay order creation fails, delete the order
         await Order.findByIdAndDelete(order._id);
-        return res.status(500).json(responseHandler.error(`Payment gateway error: ${razorpayError.message}`));
+        return res
+          .status(500)
+          .json(
+            responseHandler.error(
+              `Payment gateway error: ${razorpayError.message}`
+            )
+          );
       }
     } else {
       // For other payment methods (wallet, cod), just return the order
@@ -168,7 +206,9 @@ export const createOrder = async (req, res) => {
       cart.items = [];
       await cart.save();
 
-      return res.status(201).json(responseHandler.success(order, "Order placed successfully"));
+      return res
+        .status(201)
+        .json(responseHandler.success(order, "Order placed successfully"));
     }
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
@@ -185,7 +225,9 @@ export const getUserOrders = async (req, res) => {
       return res.status(404).json(responseHandler.error("No orders found"));
     }
 
-    return res.json(responseHandler.success(orders, "User orders retrieved successfully"));
+    return res.json(
+      responseHandler.success(orders, "User orders retrieved successfully")
+    );
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
   }
@@ -195,19 +237,22 @@ export const getUserOrders = async (req, res) => {
 export const getOrderById = async (req, res) => {
   try {
     const orderId = req.params.id;
-    const order = await Order.findById(orderId).populate("user", "firstName lastName email");
+    const order = await Order.findById(orderId).populate(
+      "user",
+      "firstName lastName email"
+    );
 
     if (!order) {
       return res.status(404).json(responseHandler.error("Order not found"));
     }
 
-    return res.json(responseHandler.success(order, "Order details retrieved successfully"));
+    return res.json(
+      responseHandler.success(order, "Order details retrieved successfully")
+    );
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
   }
 };
-
-
 
 export const getAllOrdersForAdmin = async (req, res) => {
   try {
@@ -218,7 +263,9 @@ export const getAllOrdersForAdmin = async (req, res) => {
       return res.status(404).json(responseHandler.error("No orders found"));
     }
 
-    return res.json(responseHandler.success(orders, "All orders retrieved successfully"));
+    return res.json(
+      responseHandler.success(orders, "All orders retrieved successfully")
+    );
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
   }
@@ -228,15 +275,15 @@ export const getAllOrdersForAdmin = async (req, res) => {
 export const getOrderHistory = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { 
-      status, 
-      paymentStatus, 
-      startDate, 
-      endDate, 
-      page = 1, 
+    const {
+      status,
+      paymentStatus,
+      startDate,
+      endDate,
+      page = 1,
       limit = 10,
       sortBy = "createdAt",
-      sortOrder = "desc"
+      sortOrder = "desc",
     } = req.query;
 
     // Build query
@@ -284,7 +331,7 @@ export const getOrderHistory = async (req, res) => {
     const totalPages = Math.ceil(totalOrders / limitNum);
 
     // Format response
-    const formattedOrders = orders.map(order => ({
+    const formattedOrders = orders.map((order) => ({
       _id: order._id,
       orderNumber: order._id.toString().slice(-8).toUpperCase(),
       status: order.status,
@@ -296,21 +343,26 @@ export const getOrderHistory = async (req, res) => {
       updatedAt: order.updatedAt,
       address: {
         city: order.address.city,
-        state: order.address.state
-      }
+        state: order.address.state,
+      },
     }));
 
-    return res.json(responseHandler.success({
-      orders: formattedOrders,
-      pagination: {
-        currentPage: pageNum,
-        totalPages,
-        totalOrders,
-        limit: limitNum,
-        hasNextPage: pageNum < totalPages,
-        hasPrevPage: pageNum > 1
-      }
-    }, "Order history retrieved successfully"));
+    return res.json(
+      responseHandler.success(
+        {
+          orders: formattedOrders,
+          pagination: {
+            currentPage: pageNum,
+            totalPages,
+            totalOrders,
+            limit: limitNum,
+            hasNextPage: pageNum < totalPages,
+            hasPrevPage: pageNum > 1,
+          },
+        },
+        "Order history retrieved successfully"
+      )
+    );
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
   }
@@ -323,9 +375,9 @@ export const getOrderTracking = async (req, res) => {
     const orderId = req.params.id;
 
     // Find order
-    const order = await Order.findOne({ 
+    const order = await Order.findOne({
       _id: orderId,
-      user: userId 
+      user: userId,
     });
 
     if (!order) {
@@ -334,28 +386,34 @@ export const getOrderTracking = async (req, res) => {
 
     // Calculate estimated delivery (7 days from order date if not set)
     let estimatedDelivery = order.tracking?.estimatedDelivery;
-    if (!estimatedDelivery && order.status !== "Delivered" && order.status !== "Cancelled") {
+    if (
+      !estimatedDelivery &&
+      order.status !== "Delivered" &&
+      order.status !== "Cancelled"
+    ) {
       const deliveryDate = new Date(order.createdAt);
       deliveryDate.setDate(deliveryDate.getDate() + 7);
       estimatedDelivery = deliveryDate;
     }
 
     // Format tracking timeline
-    const timeline = (order.tracking?.timeline || []).map(item => ({
+    const timeline = (order.tracking?.timeline || []).map((item) => ({
       status: item.status,
       message: item.message,
       timestamp: item.timestamp,
-      isCompleted: true
+      isCompleted: true,
     }));
 
     // Add current status if not in timeline
-    const currentStatusInTimeline = timeline.some(item => item.status === order.status);
+    const currentStatusInTimeline = timeline.some(
+      (item) => item.status === order.status
+    );
     if (!currentStatusInTimeline) {
       timeline.push({
         status: order.status,
         message: `Order is currently ${order.status}`,
         timestamp: order.updatedAt || order.createdAt,
-        isCompleted: order.status === "Delivered"
+        isCompleted: order.status === "Delivered",
       });
     }
 
@@ -374,17 +432,22 @@ export const getOrderTracking = async (req, res) => {
       trackingNumber: order.tracking?.trackingNumber || null,
       carrier: order.tracking?.carrier || null,
       address: order.address,
-      items: order.items.map(item => ({
+      items: order.items.map((item) => ({
         productName: item.productName,
         quantity: item.quantity,
-        price: item.price
+        price: item.price,
       })),
       totalPrice: order.totalPrice,
       orderDate: order.createdAt,
-      lastUpdated: order.updatedAt
+      lastUpdated: order.updatedAt,
     };
 
-    return res.json(responseHandler.success(trackingInfo, "Order tracking details retrieved successfully"));
+    return res.json(
+      responseHandler.success(
+        trackingInfo,
+        "Order tracking details retrieved successfully"
+      )
+    );
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
   }
@@ -395,7 +458,8 @@ export const cancelOrder = async (req, res) => {
   try {
     const userId = req.user.id;
     const orderId = req.params.id;
-    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+    const reason =
+      typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
 
     const order = await Order.findOne({ _id: orderId, user: userId });
 
@@ -404,11 +468,19 @@ export const cancelOrder = async (req, res) => {
     }
 
     if (order.status === "Cancelled") {
-      return res.status(409).json(responseHandler.error("Order is already cancelled"));
+      return res
+        .status(409)
+        .json(responseHandler.error("Order is already cancelled"));
     }
 
     if (["Shipped", "Delivered"].includes(order.status)) {
-      return res.status(400).json(responseHandler.error("Order cannot be cancelled after it has been shipped"));
+      return res
+        .status(400)
+        .json(
+          responseHandler.error(
+            "Order cannot be cancelled after it has been shipped"
+          )
+        );
     }
 
     let refundDetails = null;
@@ -416,27 +488,48 @@ export const cancelOrder = async (req, res) => {
     if (order.paymentStatus === "completed") {
       if (order.paymentMethod === "razorpay") {
         if (!order.razorpayPaymentId) {
-          return res.status(400).json(responseHandler.error("Payment information is missing. Please contact support to cancel this order."));
+          return res
+            .status(400)
+            .json(
+              responseHandler.error(
+                "Payment information is missing. Please contact support to cancel this order."
+              )
+            );
         }
 
         try {
           const razorpay = getRazorpayInstance();
           const totalPriceNumber = Number(order.totalPrice);
           if (!Number.isFinite(totalPriceNumber) || totalPriceNumber <= 0) {
-            return res.status(400).json(responseHandler.error("Invalid order amount for refund processing"));
+            return res
+              .status(400)
+              .json(
+                responseHandler.error(
+                  "Invalid order amount for refund processing"
+                )
+              );
           }
 
-          refundDetails = await razorpay.payments.refund(order.razorpayPaymentId, {
-            amount: Math.round(totalPriceNumber * 100),
-            speed: "optimum",
-            notes: {
-              orderId: order._id.toString(),
-              reason: reason || "User requested cancellation"
+          refundDetails = await razorpay.payments.refund(
+            order.razorpayPaymentId,
+            {
+              amount: Math.round(totalPriceNumber * 100),
+              speed: "optimum",
+              notes: {
+                orderId: order._id.toString(),
+                reason: reason || "User requested cancellation",
+              },
             }
-          });
+          );
           order.paymentStatus = "refunded";
         } catch (refundError) {
-          return res.status(502).json(responseHandler.error(`Failed to initiate refund: ${refundError.message}`));
+          return res
+            .status(502)
+            .json(
+              responseHandler.error(
+                `Failed to initiate refund: ${refundError.message}`
+              )
+            );
         }
       } else if (order.paymentMethod === "cod") {
         order.paymentStatus = "pending";
@@ -461,13 +554,18 @@ export const cancelOrder = async (req, res) => {
       status: order.status,
       paymentStatus: order.paymentStatus,
       tracking: order.tracking,
-      message: cancellationMessage
+      message: cancellationMessage,
     });
 
-    return res.json(responseHandler.success({
-      order,
-      refund: refundDetails
-    }, "Order cancelled successfully"));
+    return res.json(
+      responseHandler.success(
+        {
+          order,
+          refund: refundDetails,
+        },
+        "Order cancelled successfully"
+      )
+    );
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
   }
@@ -489,9 +587,17 @@ export const updateOrderStatus = async (req, res) => {
 
     // Update status if provided
     if (status) {
-      const validStatuses = ["Pending", "Processing", "Shipped", "Delivered", "Cancelled"];
+      const validStatuses = [
+        "Pending",
+        "Processing",
+        "Shipped",
+        "Delivered",
+        "Cancelled",
+      ];
       if (!validStatuses.includes(status)) {
-        return res.status(400).json(responseHandler.error("Invalid order status"));
+        return res
+          .status(400)
+          .json(responseHandler.error("Invalid order status"));
       }
       order.status = status;
     }
@@ -516,18 +622,19 @@ export const updateOrderStatus = async (req, res) => {
     // If status changed, add timeline entry manually (since pre-save might not trigger on direct updates)
     if (status && status !== oldStatus) {
       const statusMessages = {
-        "Pending": "Order placed and awaiting confirmation",
-        "Processing": "Order confirmed and being prepared",
-        "Shipped": "Order has been shipped",
-        "Delivered": "Order has been delivered",
-        "Cancelled": "Order has been cancelled"
+        Pending: "Order placed and awaiting confirmation",
+        Processing: "Order confirmed and being prepared",
+        Shipped: "Order has been shipped",
+        Delivered: "Order has been delivered",
+        Cancelled: "Order has been cancelled",
       };
 
-      const message = statusMessages[status] || `Order status changed to ${status}`;
+      const message =
+        statusMessages[status] || `Order status changed to ${status}`;
       order.tracking.timeline.push({
         status: status,
         message: message,
-        timestamp: new Date()
+        timestamp: new Date(),
       });
     }
 
@@ -538,10 +645,12 @@ export const updateOrderStatus = async (req, res) => {
       status: order.status,
       tracking: order.tracking,
       paymentStatus: order.paymentStatus,
-      message: `Order status updated to ${order.status}`
+      message: `Order status updated to ${order.status}`,
     });
 
-    return res.json(responseHandler.success(order, "Order status updated successfully"));
+    return res.json(
+      responseHandler.success(order, "Order status updated successfully")
+    );
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
   }
@@ -554,13 +663,15 @@ export const verifyPayment = async (req, res) => {
     const userId = req.user.id;
 
     if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
-      return res.status(400).json(responseHandler.error("Missing payment verification details"));
+      return res
+        .status(400)
+        .json(responseHandler.error("Missing payment verification details"));
     }
 
     // Find order by Razorpay order ID
-    const order = await Order.findOne({ 
+    const order = await Order.findOne({
       razorpayOrderId: razorpayOrderId,
-      user: userId 
+      user: userId,
     });
 
     if (!order) {
@@ -575,7 +686,9 @@ export const verifyPayment = async (req, res) => {
       .digest("hex");
 
     if (generatedSignature !== razorpaySignature) {
-      return res.status(400).json(responseHandler.error("Invalid payment signature"));
+      return res
+        .status(400)
+        .json(responseHandler.error("Invalid payment signature"));
     }
 
     // Update order with payment details
@@ -590,7 +703,7 @@ export const verifyPayment = async (req, res) => {
       status: order.status,
       paymentStatus: order.paymentStatus,
       tracking: order.tracking,
-      message: "Payment verified successfully. Order is now being processed."
+      message: "Payment verified successfully. Order is now being processed.",
     });
 
     // Clear cart items
@@ -600,7 +713,9 @@ export const verifyPayment = async (req, res) => {
       await cart.save();
     }
 
-    return res.json(responseHandler.success(order, "Payment verified successfully"));
+    return res.json(
+      responseHandler.success(order, "Payment verified successfully")
+    );
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
   }
@@ -638,8 +753,8 @@ export const razorpayWebhook = async (req, res) => {
 
     if (event === "payment.captured" && payment) {
       // Find order by Razorpay order ID
-      const order = await Order.findOne({ 
-        razorpayOrderId: payment.order_id 
+      const order = await Order.findOne({
+        razorpayOrderId: payment.order_id,
       });
 
       if (order && order.paymentStatus !== "completed") {
@@ -660,14 +775,14 @@ export const razorpayWebhook = async (req, res) => {
           status: order.status,
           paymentStatus: order.paymentStatus,
           tracking: order.tracking,
-          message: "Payment captured. Order is now being processed."
+          message: "Payment captured. Order is now being processed.",
         });
 
         console.log(`Payment captured for order ${order._id}`);
       }
     } else if (event === "payment.failed" && payment) {
-      const order = await Order.findOne({ 
-        razorpayOrderId: payment.order_id 
+      const order = await Order.findOne({
+        razorpayOrderId: payment.order_id,
       });
 
       if (order) {

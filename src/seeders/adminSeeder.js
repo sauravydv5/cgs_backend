@@ -23,6 +23,7 @@ const seedAdmin = async () => {
         phoneNumber: adminPhone,
         password: adminPassword,
         role: "admin",
+        dateofBirth: new Date("1990-01-01"),
       });
     } else {
       console.log("Admin found. Updating OTP...");
@@ -35,6 +36,10 @@ const seedAdmin = async () => {
     admin.otp = otp;
     admin.otpExpiresAt = expiresAt;
 
+    if (!admin.dateofBirth) {
+      admin.dateofBirth = new Date("1990-01-01");
+    }
+
     await admin.save();
 
     console.log("------------------------------------------------");
@@ -43,6 +48,7 @@ const seedAdmin = async () => {
     console.log(`👤 Name: ${admin.firstName} ${admin.lastName}`);
     console.log(`📧 Email: ${admin.email}`);
     console.log(`📱 Phone: ${admin.phoneNumber}`);
+    console.log(`🎂 DOB:   ${admin.dateofBirth ? admin.dateofBirth.toISOString().split("T")[0] : "N/A"}`);
     console.log(`🔑 OTP:  ${admin.otp}`); // OTP included in response
     console.log("------------------------------------------------");
   } catch (err) {

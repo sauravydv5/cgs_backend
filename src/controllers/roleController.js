@@ -49,13 +49,3 @@ export const updateRole = async (req, res) => {
   await role.save();
   res.json(role);
 };
-
-export const getRoleHistory = async (req, res) => {
-  const role = await Role.findById(req.params.id).populate(
-    "history.performedBy",
-    "firstName lastName email"
-  );
-
-  if (!role) return res.status(404).json({ message: "Role not found" });
-  res.json(role.history);
-};

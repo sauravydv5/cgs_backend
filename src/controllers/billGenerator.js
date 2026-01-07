@@ -4,7 +4,6 @@ export const generateBillByCustomer = async (req, res) => {
   try {
     const { customerId } = req.params;
 
-    // Fetch ALL bills for this customer to generate a consolidated report
     const bills = await Bill.find({ customerId })
       .sort({ createdAt: -1 })
       .populate("customerId");
@@ -16,32 +15,27 @@ export const generateBillByCustomer = async (req, res) => {
       });
     }
 
-    // Use customer details from the first bill found
     const customer = bills[0].customerId || {};
 
-    // Aggregate items from all bills into a single list
     let allItems = [];
     bills.forEach((bill) => {
-      if (bill.items && Array.isArray(bill.items)) {
-        const billItems = bill.items.map((item) => ({
-          ...item.toObject(),
-          billNo: bill.billNo, // Attach bill number to each item for reference
-          billDate: bill.createdAt,
-        }));
-        allItems = allItems.concat(billItems);
+      if (Array.isArray(bill.items)) {
+        allItems = allItems.concat(
+          bill.items.map((item) => ({
+            ...item.toObject(),
+            billNo: bill.billNo,
+            billDate: bill.createdAt,
+          }))
+        );
       }
     });
 
-    // Generate the HTML content
     const htmlContent = getInvoiceTemplate(customer, allItems);
-
-    // Convert HTML to Base64 Data URL
     const base64Html = Buffer.from(htmlContent).toString("base64");
-    const dataUrl = `data:text/html;base64,${base64Html}`;
 
     res.status(200).json({
       success: true,
-      url: dataUrl,
+      url: `data:text/html;base64,${base64Html}`,
     });
   } catch (error) {
     console.error("Error generating bill:", error);
@@ -52,136 +46,183 @@ export const generateBillByCustomer = async (req, res) => {
   }
 };
 
-// Helper function to format currency
-const formatCurrency = (amount) => {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-  }).format(amount || 0);
-};
-
-// Helper function to generate HTML
 const getInvoiceTemplate = (customer, items) => {
-  // Calculate totals
-  const totalAmount = items.reduce((sum, item) => sum + (Number(item.total) || Number(item.netAmount) || 0), 0);
+  // Calculate per-item values and totals
+  const calculatedItems = items.map((item) => {
+    const qty = Number(item.qty) || 0;
+    const rate = Number(item.rate) || 0;
+    const discountPercent = Number(item.discountPercent) || 0;
+
+    const base = qty * rate; // gross amount before discount
+    const discount = (base * discountPercent) / 100; // discount amount
+    const taxable = base - discount; // taxable after discount
+
+    // Determine GST rate (existing business rule)
+    const gstRate = item.hsnCode === "3304" ? 5 : 3;
+    const cgst = (taxable * gstRate) / 200; // half of gstRate
+    const sgst = (taxable * gstRate) / 200;
+
+    const finalAmount = taxable + cgst + sgst; // total for this line
+
+    return {
+      ...item,
+      qty,
+      rate,
+      base,
+      discount,
+      taxable,
+      cgst,
+      sgst,
+      finalAmount,
+      gstRate,
+    };
+  });
+
+  // Totals
+  const totalGross = calculatedItems.reduce((s, it) => s + (it.base || 0), 0);
+  const totalDiscount = calculatedItems.reduce((s, it) => s + (it.discount || 0), 0);
+  const totalTaxable = calculatedItems.reduce((s, it) => s + (it.taxable || 0), 0);
+  const totalCGST = calculatedItems.reduce((s, it) => s + (it.cgst || 0), 0);
+  const totalSGST = calculatedItems.reduce((s, it) => s + (it.sgst || 0), 0);
+  const totalTax = totalCGST + totalSGST;
+  const finalAmount = calculatedItems.reduce((s, it) => s + (it.finalAmount || 0), 0);
+
   const currentDate = new Date().toLocaleDateString("en-IN");
-  
-  const customerName = customer.name || 
-    (customer.firstName ? `${customer.firstName} ${customer.lastName || ""}` : "N/A");
+  const currentTime = new Date().toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+  const customerName =
+    customer.name ||
+    (customer.firstName
+      ? `${customer.firstName} ${customer.lastName || ""}`
+      : "N/A");
 
   return `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Consolidated Invoice</title>
+  <title>Tax Invoice</title>
   <style>
     body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin: 0; padding: 20px; }
     .invoice-box { max-width: 800px; margin: auto; padding: 30px; border: 1px solid #eee; box-shadow: 0 0 10px rgba(0, 0, 0, 0.15); font-size: 14px; line-height: 24px; }
     .header { display: flex; justify-content: space-between; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 20px; }
     .company-details { text-align: right; }
-    .company-title { font-size: 24px; font-weight: bold; color: #E57373; margin-bottom: 5px; }
-    .invoice-title { font-size: 28px; font-weight: bold; color: #555; text-align: center; margin-bottom: 20px; letter-spacing: 2px; }
-    
-    .info-section { display: flex; justify-content: space-between; margin-bottom: 30px; }
-    .bill-to { flex: 1; }
-    .invoice-meta { flex: 1; text-align: right; }
-    
+    .company-title { font-size: 24px; font-weight: bold; color: #555; margin-bottom: 5px; }
     table { width: 100%; line-height: inherit; text-align: left; border-collapse: collapse; }
-    table th { background: #f8f8f8; color: #333; font-weight: bold; padding: 10px; border: 1px solid #eee; font-size: 12px; }
+    table th { background: #f8f8f8; font-weight: bold; padding: 10px; border: 1px solid #eee; font-size: 12px; }
     table td { padding: 10px; border: 1px solid #eee; font-size: 12px; }
-    table tr.item:nth-child(even) { background-color: #fcfcfc; }
-    
     .totals { margin-top: 20px; display: flex; justify-content: flex-end; }
     .totals-table { width: 300px; }
-    .totals-table td { padding: 5px 10px; border: none; }
-    .totals-table .total-row { font-weight: bold; font-size: 16px; border-top: 2px solid #333; }
-    
-    .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #777; text-align: center; }
-    .signature { margin-top: 40px; text-align: right; font-weight: bold; }
+    .totals-table td { padding: 5px 10px; }
+    .total-row { font-weight: bold; font-size: 16px; border-top: 2px solid #333; }
+    .footer { margin-top: 30px; font-size: 12px; text-align: center; color: #555; }
   </style>
 </head>
+
 <body>
-  <div class="invoice-box">
-    <div class="header">
-      <div>
-        <div style="font-size: 20px; font-weight: bold; color: #333;">CGS Backend</div>
-        <div>123 Business Road, Tech City</div>
-        <div>State, Country - 110001</div>
-        <div>GSTIN: 07AAAAA0000A1Z5</div>
-      </div>
-      <div class="company-details">
-        <div class="company-title">CONSOLIDATED INVOICE</div>
-        <div>Statement of All Products</div>
-      </div>
-    </div>
-    <div class="info-section">
-      <div class="bill-to">
-        <strong>Bill To:</strong><br />
-        ${customerName}<br />
-        ${customer.address || ""}<br />
-        ${customer.phoneNumber ? `Phone: ${customer.phoneNumber}` : ""}
-      </div>
-      <div class="invoice-meta">
-        <strong>Date:</strong> ${currentDate}<br />
-        <strong>Total Items:</strong> ${items.length}
-      </div>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th style="width: 5%;">S.No</th>
-          <th style="width: 15%;">Bill No</th>
-          <th style="width: 35%;">Item Name</th>
-          <th style="width: 10%;">HSN</th>
-          <th style="width: 10%;">Batch</th>
-          <th style="width: 10%;">Qty</th>
-          <th style="width: 10%;">Rate</th>
-          <th style="width: 10%;">Disc %</th>
-          <th style="width: 10%;">Amount</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${items.map((item, index) => `
-          <tr class="item">
-            <td>${index + 1}</td>
-            <td style="font-size: 10px; color: #555;">${item.billNo || "-"}</td>
-            <td>
-              ${item.itemName}
-              <div style="font-size: 10px; color: #888;">${item.companyName || ""}</div>
-            </td>
-            <td>${item.hsnCode || "-"}</td>
-            <td>${item.batch || "-"}</td>
-            <td>${item.qty}</td>
-            <td>${item.rate}</td>
-            <td>${item.discountPercent || 0}%</td>
-            <td style="text-align: right;">${(Number(item.total) || Number(item.netAmount) || 0).toFixed(2)}</td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-    <div class="totals">
-      <table class="totals-table">
-        <tr>
-          <td>Sub Total:</td>
-          <td style="text-align: right;">${formatCurrency(totalAmount)}</td>
-        </tr>
-        <tr class="total-row">
-          <td>Grand Total:</td>
-          <td style="text-align: right;">${formatCurrency(totalAmount)}</td>
-        </tr>
-      </table>
-    </div>
-    <div class="signature">
-      <br/><br/>
-      Authorized Signatory
-    </div>
-    <div class="footer">
-      <p>Thank you for your business!</p>
-      <p>Terms & Conditions: Goods once sold will not be taken back. Subject to local jurisdiction.</p>
-    </div>
+<div class="invoice-box">
+
+<div class="header">
+  <div>
+    <div style="font-size:20px;font-weight:bold;">CHEAP GENERAL STORE</div>
+    <div>ADALAT BAZAR, PATIALA</div>
+    <div>Phone: 0175-5005318, 9592472590</div>
+    <div>GST No: 03AAATFC8302N1Z5</div>
   </div>
+
+  <div class="company-details">
+    <div class="company-title">TAX INVOICE</div>
+    <div>GST BILL</div>
+  </div>
+</div>
+
+<div style="display:flex;justify-content:space-between;margin-bottom:20px;">
+  <div>
+    <strong>Bill To:</strong><br/>
+    ${customerName}<br/>
+    ${customer.address || ""}<br/>
+    ${customer.phoneNumber || ""}
+  </div>
+
+  <div style="text-align:right;">
+    <strong>Bill No:</strong> ${calculatedItems[0]?.billNo || "-"}<br/>
+    <strong>Date:</strong> ${currentDate}<br/>
+    <strong>Time:</strong> ${currentTime}
+  </div>
+</div>
+
+<table>
+<thead>
+<tr>
+  <th>SL</th>
+  <th>ITEM NAME</th>
+  <th>HSN CODE</th>
+  <th>QTY</th>
+  <th>RATE</th>
+  <th>DIS%</th>
+  <th>DIS AMT</th>
+  <th>AMT</th>
+</tr>
+</thead>
+<tbody>
+${calculatedItems
+  .map(
+    (item, i) => `
+<tr>
+  <td>${i + 1}</td>
+  <td>${item.itemName}</td>
+  <td>${item.hsnCode || "-"}</td>
+  <td class="center">${item.qty}</td>
+  <td class="right">₹${item.rate.toFixed(2)}</td>
+  <td class="center">${item.discountPercent || 0}%</td>
+  <td class="right">₹${(item.discount || 0).toFixed(2)}</td>
+  <td class="right">₹${(item.finalAmount || 0).toFixed(2)}</td>
+</tr>`
+  )
+  .join("")}
+</tbody>
+</table>
+
+<div class="totals">
+<table class="totals-table">
+<tr>
+  <td>AMOUNT:</td>
+  <td style="text-align:right;">₹${totalGross.toFixed(2)}</td>
+</tr>
+<tr>
+  <td>DIS.:</td>
+  <td style="text-align:right;">₹${totalDiscount.toFixed(2)}</td>
+</tr>
+<tr>
+  <td>AMT AFT DIS:</td>
+  <td style="text-align:right;">₹${totalTaxable.toFixed(2)}</td>
+</tr>
+<tr>
+  <td>CGST:</td>
+  <td style="text-align:right;">₹${totalCGST.toFixed(2)}</td>
+</tr>
+<tr>
+  <td>SGST:</td>
+  <td style="text-align:right;">₹${totalSGST.toFixed(2)}</td>
+</tr>
+<tr class="total-row">
+  <td>BILL AMT:</td>
+  <td style="text-align:right;">₹${finalAmount.toFixed(2)}</td>
+</tr>
+</table>
+</div>
+
+<div class="footer">
+ALL DISPUTES SUBJECT TO PATIALA JURISDICTION<br/>
+THIS IS COMPUTER GENERATED INVOICE
+</div>
+
+</div>
 </body>
 </html>
-  `;
+`;
 };

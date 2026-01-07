@@ -17,7 +17,6 @@ export const createEmployee = async (req, res) => {
     status,
   } = req.body;
 
-  // Check if role is an ID or a Name
   let roleData;
   if (mongoose.Types.ObjectId.isValid(role)) {
     roleData = await Role.findById(role);

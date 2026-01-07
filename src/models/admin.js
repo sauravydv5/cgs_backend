@@ -33,6 +33,8 @@ const adminSchema = new mongoose.Schema(
       default: false,
     },
 
+    dateofBirth: Date,
+
     otp: { type: Number, default: null },
     otpExpiresAt: { type: Date, default: null },
 

@@ -22,6 +22,9 @@ export const addBill = async (req, res) => {
       return res.status(400).json({ message: "Required fields missing" });
     }
 
+    /* 🔹 ROUNDING HELPER */
+    const round2 = (n) => Math.round(n * 100) / 100;
+
     let finalItems = [];
 
     let totalQty = 0;
@@ -60,14 +63,15 @@ export const addBill = async (req, res) => {
       const rate = Number(item.rate || product.mrp);
       const discountAmount = Number(item.discountAmount || 0);
 
-      const gross = rate * qty;
-      const taxable = gross - discountAmount;
+      const gross = round2(rate * qty);
+      const taxable = round2(gross - discountAmount);
 
       const gstPercent = Number(product.gst || 0);
-      const cgst = (taxable * gstPercent) / 200;
-      const sgst = (taxable * gstPercent) / 200;
 
-      const total = taxable + cgst + sgst;
+      const cgst = round2((taxable * gstPercent) / 200);
+      const sgst = round2((taxable * gstPercent) / 200);
+
+      const total = round2(taxable + cgst + sgst);
 
       /* 🔹 FINAL ITEM SNAPSHOT */
       finalItems.push({
@@ -100,12 +104,13 @@ export const addBill = async (req, res) => {
         total,
       });
 
+      /* 🔹 RUNNING TOTALS (ROUNDED) */
       totalQty += qty;
-      grossAmount += gross;
-      totalDiscount += discountAmount;
-      taxableAmount += taxable;
-      totalCGST += cgst;
-      totalSGST += sgst;
+      grossAmount = round2(grossAmount + gross);
+      totalDiscount = round2(totalDiscount + discountAmount);
+      taxableAmount = round2(taxableAmount + taxable);
+      totalCGST = round2(totalCGST + cgst);
+      totalSGST = round2(totalSGST + sgst);
     }
 
     /* ================= GENERATE BILL NO ================= */
@@ -119,16 +124,18 @@ export const addBill = async (req, res) => {
     }
     const newBillNo = `BILL${String(nextNum).padStart(4, "0")}`;
 
-    const netAmount =
-      taxableAmount + totalCGST + totalSGST + (roundOff || 0);
+    const netAmount = round2(
+      taxableAmount + totalCGST + totalSGST + (roundOff || 0)
+    );
 
-    const balanceAmount = netAmount - (paidAmount || 0);
+    const balanceAmount = round2(netAmount - (paidAmount || 0));
 
     // Use provided status if it is "Draft", otherwise calculate based on payment
     let paymentStatus = providedStatus === "Draft" ? "Draft" : null;
 
     if (!paymentStatus) {
-      paymentStatus = balanceAmount === 0
+      paymentStatus =
+        balanceAmount === 0
           ? "Paid"
           : paidAmount > 0
           ? "Partial"
@@ -171,6 +178,7 @@ export const addBill = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 /* ================= GET DRAFT BILLS ================= */
 export const getDraftBills = async (req, res) => {
@@ -285,6 +293,9 @@ export const updateBill = async (req, res) => {
       return res.status(404).json({ message: "Bill not found" });
     }
 
+    /* 🔹 ROUNDING HELPER */
+    const round2 = (n) => Math.round(n * 100) / 100;
+
     /* ---------- RECALCULATE TOTALS ---------- */
     let totalQty = 0;
     let grossAmount = 0;
@@ -294,26 +305,59 @@ export const updateBill = async (req, res) => {
     let totalSGST = 0;
     let totalIGST = 0;
 
-    items.forEach((item) => {
-      totalQty += item.qty || 0;
-      grossAmount += (item.mrp || 0) * (item.qty || 0);
-      totalDiscount += item.discountAmount || 0;
-      taxableAmount += item.taxableAmount || 0;
-      totalCGST += item.cgst || 0;
-      totalSGST += item.sgst || 0;
-      totalIGST += item.igst || 0;
+    const updatedItems = items.map((item) => {
+      const qty = Number(item.qty || 0);
+      const rate = Number(item.rate || item.mrp || 0);
+      const discountAmount = Number(item.discountAmount || 0);
+      const gstPercent = Number(item.gstPercent || 0);
+
+      const gross = round2(rate * qty);
+      const taxable = round2(gross - discountAmount);
+
+      const cgst = round2((taxable * gstPercent) / 200);
+      const sgst = round2((taxable * gstPercent) / 200);
+      const igst = round2(item.igst || 0);
+
+      const total = round2(taxable + cgst + sgst + igst);
+
+      /* 🔹 RUNNING TOTALS */
+      totalQty += qty;
+      grossAmount = round2(grossAmount + gross);
+      totalDiscount = round2(totalDiscount + discountAmount);
+      taxableAmount = round2(taxableAmount + taxable);
+      totalCGST = round2(totalCGST + cgst);
+      totalSGST = round2(totalSGST + sgst);
+      totalIGST = round2(totalIGST + igst);
+
+      return {
+        ...item,
+        qty,
+        rate,
+        discountAmount,
+        taxableAmount: taxable,
+        cgst,
+        sgst,
+        igst,
+        total,
+      };
     });
 
-    const netAmount =
-      taxableAmount + totalCGST + totalSGST + totalIGST + (roundOff || 0);
+    const netAmount = round2(
+      taxableAmount +
+        totalCGST +
+        totalSGST +
+        totalIGST +
+        (roundOff || 0)
+    );
 
-    const balanceAmount = netAmount - (paidAmount || 0);
+    const balanceAmount = round2(netAmount - (paidAmount || 0));
 
     // Use provided status if it is "Draft", otherwise calculate based on payment
     let paymentStatus = providedStatus === "Draft" ? "Draft" : null;
 
     if (!paymentStatus) {
-      paymentStatus = balanceAmount === 0
+      paymentStatus =
+        balanceAmount === 0
           ? "Paid"
           : paidAmount > 0
           ? "Partial"
@@ -325,7 +369,7 @@ export const updateBill = async (req, res) => {
     bill.agentId = agentId;
     bill.billNo = billNo;
     bill.billDate = billDate;
-    bill.items = items;
+    bill.items = updatedItems;
 
     bill.totalQty = totalQty;
     bill.grossAmount = grossAmount;
@@ -351,6 +395,7 @@ export const updateBill = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 
 export const deleteBill = async (req, res) => {
