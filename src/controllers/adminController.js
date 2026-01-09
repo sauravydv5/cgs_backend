@@ -163,7 +163,7 @@ export const verifyAdminOtp = async (req, res) => {
     const token = jwt.sign(
       { id: admin._id, role: "admin" },
       process.env.JWT_SECRET,
-      { expiresIn: "1d" }
+      { expiresIn: "3d" }
     );
 
     return res.json(

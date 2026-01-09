@@ -57,6 +57,20 @@ export const getReportsByDateRange = async (req, res) => {
 
     end.setHours(23, 59, 59, 999); // Include full end day
 
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+
+    if (start > today || end > today) {
+      return res.status(400).json({
+        success: false,
+        message: "Future dates are not allowed",
+      });
+    }
+
+    if (end < start) {
+      return res.status(400).json({ success: false, message: "End date cannot be prior to start date" });
+    }
+
     const bills = await Bill.find({
       billDate: { $gte: start, $lte: end },
     })

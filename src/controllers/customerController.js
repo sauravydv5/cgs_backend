@@ -5,7 +5,9 @@ import { USER_ROLES } from "../constants/auth.js";
 
 export const getAllCustomers = async (req, res) => {
   try {
-    const { page, limit, offset } = req;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
     const { search } = req.query;
 
     const query = { role: USER_ROLES.CUSTOMER };
@@ -130,7 +132,9 @@ export const deleteCustomer = async (req, res) => {
 
 export const getCustomersByDateRange = async (req, res) => {
   try {
-    const { page, limit, offset } = req;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
     const { startDate, endDate, sortBy = "createdAt", sortOrder = "desc" } = req.query;
 
     const query = { role: USER_ROLES.CUSTOMER };
@@ -138,6 +142,8 @@ export const getCustomersByDateRange = async (req, res) => {
     // Filter by date range
     if (startDate || endDate) {
       query.createdAt = {};
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
 
       if (startDate) {
         const start = new Date(startDate);
@@ -145,6 +151,9 @@ export const getCustomersByDateRange = async (req, res) => {
           return res
             .status(400)
             .json(responseHandler.error("Invalid start date format. Use YYYY-MM-DD or ISO 8601 format"));
+        }
+        if (start > today) {
+          return res.status(400).json(responseHandler.error("Future dates are not allowed"));
         }
         // Set to start of day
         start.setHours(0, 0, 0, 0);
@@ -159,8 +168,16 @@ export const getCustomersByDateRange = async (req, res) => {
             .json(responseHandler.error("Invalid end date format. Use YYYY-MM-DD or ISO 8601 format"));
         }
         // Set to end of day
+        // Set to end of day
         end.setHours(23, 59, 59, 999);
+        if (end > today) {
+          return res.status(400).json(responseHandler.error("Future dates are not allowed"));
+        }
         query.createdAt.$lte = end;
+      }
+
+      if (query.createdAt.$gte && query.createdAt.$lte && query.createdAt.$lte < query.createdAt.$gte) {
+        return res.status(400).json(responseHandler.error("End date cannot be prior to start date"));
       }
     } else {
       return res
@@ -237,7 +254,9 @@ export const getCustomersByDateRange = async (req, res) => {
 
 export const getCustomersByRating = async (req, res) => {
   try {
-    const { page, limit, offset } = req;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
     const { rating, minRating, maxRating, sortBy = "rating", sortOrder = "desc" } = req.query;
 
     const query = { role: USER_ROLES.CUSTOMER };

@@ -194,6 +194,23 @@ export const getSuppliersByDateRange = async (req, res) => {
 
     end.setHours(23, 59, 59, 999); // Include the full end day
 
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+
+    if (start > today || end > today) {
+      return res.status(400).json({
+        success: false,
+        message: "Future dates are not allowed",
+      });
+    }
+
+    if (end < start) {
+      return res.status(400).json({
+        success: false,
+        message: "End date cannot be prior to start date",
+      });
+    }
+
     const suppliers = await Supplier.find({
       createdAt: { $gte: start, $lte: end },
     }).sort({ createdAt: -1 });

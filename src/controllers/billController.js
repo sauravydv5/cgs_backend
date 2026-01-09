@@ -232,9 +232,23 @@ export const getBillsByDateRange = async (req, res) => {
 
     const filter = {};
     if (from && to) {
+      const start = new Date(from);
+      const end = new Date(to);
+      end.setHours(23, 59, 59, 999); // Ensure end date covers the full day
+
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+
+      if (start > today || end > today) {
+        return res.status(400).json({ message: "Future dates are not allowed" });
+      }
+      if (end < start) {
+        return res.status(400).json({ message: "End date cannot be prior to start date" });
+      }
+
       filter.billDate = {
-        $gte: new Date(from),
-        $lte: new Date(to),
+        $gte: start,
+        $lte: end,
       };
     }
 

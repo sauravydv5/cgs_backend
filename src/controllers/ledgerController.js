@@ -193,12 +193,26 @@ export const getSupplierLedger = async (req, res) => {
 
     if ((fromDate && fromDate !== "") || (toDate && toDate !== "")) {
       q.date = {};
-      if (fromDate && fromDate !== "") q.date.$gte = new Date(fromDate);
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+
+      if (fromDate && fromDate !== "") {
+        const start = new Date(fromDate);
+        if (start > today) return res.status(400).json({ success: false, message: "Future dates are not allowed" });
+        q.date.$gte = start;
+      }
 
       if (toDate && toDate !== "") {
         const d = new Date(toDate);
         d.setHours(23, 59, 59, 999);
+        if (d > today) return res.status(400).json({ success: false, message: "Future dates are not allowed" });
         q.date.$lte = d;
+      }
+
+      if (q.date.$gte && q.date.$lte) {
+        if (q.date.$lte < q.date.$gte) {
+          return res.status(400).json({ success: false, message: "End date cannot be prior to start date" });
+        }
       }
     }
 
@@ -291,11 +305,25 @@ export const getCustomerLedger = async (req, res) => {
 
     if (fromDate || toDate) {
       q.date = {};
-      if (fromDate) q.date.$gte = new Date(fromDate);
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+
+      if (fromDate) {
+        const start = new Date(fromDate);
+        if (start > today) return res.status(400).json({ success: false, message: "Future dates are not allowed" });
+        q.date.$gte = start;
+      }
       if (toDate) {
         const d = new Date(toDate);
         d.setHours(23, 59, 59, 999);
+        if (d > today) return res.status(400).json({ success: false, message: "Future dates are not allowed" });
         q.date.$lte = d;
+      }
+
+      if (q.date.$gte && q.date.$lte) {
+        if (q.date.$lte < q.date.$gte) {
+          return res.status(400).json({ success: false, message: "End date cannot be prior to start date" });
+        }
       }
     }
 
@@ -389,6 +417,20 @@ export const getLedgerByDateRange = async (req, res) => {
     }
 
     end.setHours(23, 59, 59, 999); // Include the full end day
+
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+
+    if (start > today || end > today) {
+      return res.status(400).json({
+        success: false,
+        message: "Future dates are not allowed",
+      });
+    }
+
+    if (end < start) {
+      return res.status(400).json({ success: false, message: "End date cannot be prior to start date" });
+    }
 
     const query = { date: { $gte: start, $lte: end } };
     if (partyType) query.partyType = partyType;
