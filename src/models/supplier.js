@@ -4,16 +4,15 @@ const supplierSchema = new mongoose.Schema(
   {
     supplierId: {
       type: String,
-      required: true,
       unique: true,
     },
     name: {
       type: String,
-      required: true,
+      default: "N/A",
     },
     mobileNumber: {
       type: String,
-      required: true,
+      default: "N/A",
     },
     email: String,
     companyName: String,

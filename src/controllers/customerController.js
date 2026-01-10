@@ -102,6 +102,38 @@ export const updateCustomerStatus = async (req, res) => {
   }
 };
 
+export const updateCustomerRating = async (req, res) => {
+  try {
+    const { customerId } = req.params;
+    const { rating } = req.body;
+
+    if (rating === undefined || typeof rating !== "number" || rating < 0 || rating > 5) {
+      return res
+        .status(400)
+        .json(responseHandler.error("Rating must be a number between 0 and 5"));
+    }
+
+    const customer = await User.findOneAndUpdate(
+      { _id: customerId, role: USER_ROLES.CUSTOMER },
+      { rating },
+      { new: true }
+    ).select("-password -otp -otpExpiresAt");
+
+    if (!customer) {
+      return res.status(404).json(responseHandler.error("Customer not found"));
+    }
+
+    return res.json(
+      responseHandler.success(
+        { customer },
+        "Customer rating updated successfully"
+      )
+    );
+  } catch (error) {
+    return res.status(500).json(responseHandler.error(error.message));
+  }
+};
+
 export const deleteCustomer = async (req, res) => {
   try {
     const { customerId } = req.params;
@@ -379,39 +411,56 @@ export const addCustomer = async (req, res) => {
       password,
       profilePic,
       dateofBirth,
+      gender,
     } = req.body;
 
+    // Sanitize inputs: Convert empty strings or whitespace to undefined
+    const cleanEmail = email?.trim() || undefined;
+    const cleanPhone = phoneNumber?.trim() || undefined;
+
     // Check if email already exists
-    const existingEmailUser = await User.findOne({ email });
-    if (existingEmailUser) {
-      return res
-        .status(409)
-        .json(responseHandler.error("Email already exists"));
+    if (cleanEmail) {
+      const existingEmailUser = await User.findOne({ email: cleanEmail });
+      if (existingEmailUser) {
+        return res
+          .status(409)
+          .json(responseHandler.error("Email already exists"));
+      }
     }
 
     // Check if phone number already exists
-    const existingPhoneUser = await User.findOne({ phoneNumber });
-    if (existingPhoneUser) {
-      return res
-        .status(409)
-        .json(responseHandler.error("Phone number already exists"));
+    if (cleanPhone) {
+      const existingPhoneUser = await User.findOne({ phoneNumber: cleanPhone });
+      if (existingPhoneUser) {
+        return res
+          .status(409)
+          .json(responseHandler.error("Phone number already exists"));
+      }
     }
 
     // Create customer
-    const customer = await User.create({
-      firstName,
-      lastName,
-      email,
-      phoneNumber,
-      password: password, // Pass plain password to the model
-      profilePic: profilePic || "",
-      dateofBirth: dateofBirth ? new Date(dateofBirth) : null,
-      role: USER_ROLES.CUSTOMER,
-      isPhoneVerified: false,
-      isEmailVerified: false,
-      isNew: true,
-      isBlocked: false,
-    });
+    const customerData = {
+  firstName: firstName || "N/A",
+  lastName: lastName,
+  email: cleanEmail,
+  password: password,
+  profilePic: profilePic || "N/A",
+  dateofBirth: dateofBirth ? new Date(dateofBirth) : null,
+  gender: gender || "N/A",
+  role: USER_ROLES.CUSTOMER,
+  isPhoneVerified: false,
+  isEmailVerified: false,
+  isNewUser: true,
+  isBlocked: false,
+};
+
+// ✅ add phoneNumber only if provided
+if (cleanPhone) {
+  customerData.phoneNumber = cleanPhone;
+}
+
+const customer = await User.create(customerData);
+
 
     // Return customer without password
     const customerResponse = customer.toObject();

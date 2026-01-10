@@ -15,7 +15,7 @@ const userSchema = new mongoose.Schema(
     profilePic: { type: String, default: "" },
     dateofBirth: { type: Date, default: null },
     email: { type: String, unique: true, sparse: true },
-    phoneNumber: { type: String, unique: true, required: true },
+    phoneNumber: { type: String, unique: true, sparse: true },
     password: { type: String, default: "" },
     otp: { type: Number, default: null },
     otpExpiresAt: { type: Date, default: null },
@@ -28,6 +28,7 @@ const userSchema = new mongoose.Schema(
     isBlocked: { type: Boolean, default: false },
     lastLogin: { type: Date },
     rating: { type: Number, default: 0, min: 0, max: 5 },
+    gender: { type: String, enum: ["Male", "Female", "Other", "N/A"], default: "N/A" },
   },
   { timestamps: true }
 );

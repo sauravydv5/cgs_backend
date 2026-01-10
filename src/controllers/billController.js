@@ -191,7 +191,7 @@ export const addBill = async (req, res) => {
 /* ================= GET DRAFT BILLS ================= */
 export const getDraftBills = async (req, res) => {
   try {
-    const bills = await Bill.find({ paymentStatus: "Draft" })
+    const bills = await Bill.find({ paymentStatus: { $in: ["Draft", "Unpaid"] } })
       .populate("customerId", "firstName lastName phoneNumber")
       .sort({ createdAt: -1 });
 

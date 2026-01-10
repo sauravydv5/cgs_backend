@@ -50,10 +50,10 @@ async function generateSupplierId() {
 // ADD SUPPLIER
 export const addSupplier = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, name, mobileNumber } = req.body;
 
     // Check if a supplier with the same email already exists
-    if (email) {
+    if (email && email.trim() !== "") {
       const existingSupplier = await Supplier.findOne({ email });
       if (existingSupplier) {
         return res
@@ -64,8 +64,10 @@ export const addSupplier = async (req, res) => {
     const supplierId = await generateSupplierId();
 
     const supplier = await Supplier.create({
-      supplierId,
       ...req.body,
+      supplierId,
+      name: name || "N/A",
+      mobileNumber: mobileNumber || "N/A",
     });
 
     res.status(201).json({
