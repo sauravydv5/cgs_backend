@@ -24,6 +24,7 @@ const seedAdmin = async () => {
         password: adminPassword,
         role: "admin",
         dateofBirth: new Date("1990-01-01"),
+        profilePicture: "https://upload.wikimedia.org/wikipedia/commons/9/99/Sample_User_Icon.png",
       });
     } else {
       console.log("Admin found. Updating OTP...");

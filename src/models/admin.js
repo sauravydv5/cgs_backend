@@ -35,6 +35,11 @@ const adminSchema = new mongoose.Schema(
 
     dateofBirth: Date,
 
+    profilePicture: {
+      type: String,
+      default: null,
+    },
+
     otp: { type: Number, default: null },
     otpExpiresAt: { type: Date, default: null },
 

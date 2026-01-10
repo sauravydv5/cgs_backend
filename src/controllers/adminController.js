@@ -39,7 +39,13 @@ export const adminLogin = async (req, res) => {
     }
 
     if (admin.isBlocked) {
-      return res.status(403).json(responseHandler.error("Your account is blocked. Please contact support."));
+      return res
+        .status(403)
+        .json(
+          responseHandler.error(
+            "Your account is blocked. Please contact support."
+          )
+        );
     }
 
     const isMatch = await bcrypt.compare(password, admin.password);
@@ -49,9 +55,7 @@ export const adminLogin = async (req, res) => {
 
     const otp = await generateAndSaveAdminOtp(admin);
 
-    return res.json(
-      responseHandler.success({ otp }, "OTP sent successfully")
-    );
+    return res.json(responseHandler.success({ otp }, "OTP sent successfully"));
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
   }
@@ -66,17 +70,19 @@ export const forgotPassword = async (req, res) => {
 
     const admin = await Admin.findOne({ email });
     if (!admin) {
-      return res.status(404).json(responseHandler.error("Admin with this email does not exist"));
+      return res
+        .status(404)
+        .json(responseHandler.error("Admin with this email does not exist"));
     }
 
     // Generate a plain token
-    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetToken = crypto.randomBytes(32).toString("hex");
 
     // Hash the token for database storage
     admin.resetPasswordToken = crypto
-      .createHash('sha256')
+      .createHash("sha256")
       .update(resetToken)
-      .digest('hex');
+      .digest("hex");
 
     // Set an expiry time for the token (e.g., 15 minutes)
     admin.resetPasswordExpiresAt = Date.now() + 15 * 60 * 1000;
@@ -87,14 +93,21 @@ export const forgotPassword = async (req, res) => {
     // `https://your-frontend.com/admin/reset-password/${resetToken}`
     console.log(`Password reset token for ${admin.email}: ${resetToken}`);
 
-    return res.json(responseHandler.success(
-      null,
-      "A password reset link has been sent to your email address."
-    ));
-
+    return res.json(
+      responseHandler.success(
+        null,
+        "A password reset link has been sent to your email address."
+      )
+    );
   } catch (err) {
     console.error(err);
-    return res.status(500).json(responseHandler.error("An error occurred while processing your request."));
+    return res
+      .status(500)
+      .json(
+        responseHandler.error(
+          "An error occurred while processing your request."
+        )
+      );
   }
 };
 
@@ -104,13 +117,12 @@ export const resetPassword = async (req, res) => {
     const { password } = req.body;
 
     if (!password) {
-      return res.status(400).json(responseHandler.error("Password is required"));
+      return res
+        .status(400)
+        .json(responseHandler.error("Password is required"));
     }
 
-    const hashedToken = crypto
-      .createHash('sha256')
-      .update(token)
-      .digest('hex');
+    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
 
     const admin = await Admin.findOne({
       resetPasswordToken: hashedToken,
@@ -118,7 +130,13 @@ export const resetPassword = async (req, res) => {
     });
 
     if (!admin) {
-      return res.status(400).json(responseHandler.error("Password reset token is invalid or has expired."));
+      return res
+        .status(400)
+        .json(
+          responseHandler.error(
+            "Password reset token is invalid or has expired."
+          )
+        );
     }
 
     admin.password = password;
@@ -127,8 +145,9 @@ export const resetPassword = async (req, res) => {
 
     await admin.save();
 
-    return res.json(responseHandler.success(null, "Password has been reset successfully."));
-
+    return res.json(
+      responseHandler.success(null, "Password has been reset successfully.")
+    );
   } catch (err) {
     console.error(err);
     return res.status(500).json(responseHandler.error(err.message));
@@ -177,6 +196,7 @@ export const verifyAdminOtp = async (req, res) => {
             phoneNumber: admin.phoneNumber,
             role: admin.role,
             dateofBirth: admin.dateofBirth,
+            profilePicture: admin.profilePicture,
           },
           token,
         },
@@ -209,12 +229,20 @@ export const resendOtp = async (req, res) => {
     }
 
     if (admin.isBlocked) {
-      return res.status(403).json(responseHandler.error("Your account is blocked. Please contact support."));
+      return res
+        .status(403)
+        .json(
+          responseHandler.error(
+            "Your account is blocked. Please contact support."
+          )
+        );
     }
 
     const otp = await generateAndSaveAdminOtp(admin);
 
-    return res.json(responseHandler.success({ otp }, "OTP resent successfully"));
+    return res.json(
+      responseHandler.success({ otp }, "OTP resent successfully")
+    );
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
   }
@@ -222,13 +250,17 @@ export const resendOtp = async (req, res) => {
 
 export const getAdminProfile = async (req, res) => {
   try {
-    const admin = await Admin.findById(req.user.id).select("-password -otp -otpExpiresAt -resetPasswordToken -resetPasswordExpiresAt");
+    const admin = await Admin.findById(req.user.id).select(
+      "-password -otp -otpExpiresAt -resetPasswordToken -resetPasswordExpiresAt"
+    );
 
     if (!admin) {
       return res.status(404).json(responseHandler.error("Admin not found"));
     }
 
-    return res.json(responseHandler.success(admin, "Admin profile retrieved successfully"));
+    return res.json(
+      responseHandler.success(admin, "Admin profile retrieved successfully")
+    );
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
   }
@@ -236,10 +268,18 @@ export const getAdminProfile = async (req, res) => {
 
 export const updateAdminProfile = async (req, res) => {
   try {
-    const { firstName, lastName, email, phoneNumber, dateofBirth } = req.body;
+    const {
+      firstName,
+      lastName,
+      email,
+      phoneNumber,
+      dateofBirth,
+      profilePic,
+      profilePicture,
+    } = req.body;
+
     const adminId = req.user._id;
 
-    // Check if email or phone is already taken by another admin
     if (email || phoneNumber) {
       const query = { _id: { $ne: adminId }, $or: [] };
       if (email) query.$or.push({ email });
@@ -250,7 +290,9 @@ export const updateAdminProfile = async (req, res) => {
         if (existingAdmin) {
           return res
             .status(400)
-            .json(responseHandler.error("Email or Phone number already in use"));
+            .json(
+              responseHandler.error("Email or Phone number already in use")
+            );
         }
       }
     }
@@ -261,13 +303,22 @@ export const updateAdminProfile = async (req, res) => {
     if (email) updates.email = email;
     if (phoneNumber) updates.phoneNumber = phoneNumber;
     if (dateofBirth) updates.dateofBirth = dateofBirth;
+    if (profilePic) {
+      updates.profilePicture = profilePic;
+    }
+
+    if (profilePicture) {
+      updates.profilePicture = profilePicture;
+    }
 
     const admin = await Admin.findByIdAndUpdate(adminId, updates, {
       new: true,
-    }).select("-password -otp -otpExpiresAt -resetPasswordToken -resetPasswordExpiresAt");
+    }).select(
+      "-password -otp -otpExpiresAt -resetPasswordToken -resetPasswordExpiresAt"
+    );
 
     return res.json(
-      responseHandler.success(admin, "Admin profile updated successfully")
+      responseHandler.success(admin, "✅ Profile updated successfully!")
     );
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));

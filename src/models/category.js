@@ -9,4 +9,9 @@ const categorySchema = new mongoose.Schema(
   { timestamps: true, versionKey: false }
 );
 
-export default mongoose.model("Category", categorySchema);
+const Category = mongoose.model("Category", categorySchema);
+
+// Drop the unique index on 'name' if it exists (to allow duplicate names)
+Category.collection.dropIndex("name_1").catch(() => {});
+
+export default Category;

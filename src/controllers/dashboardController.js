@@ -114,3 +114,137 @@ const totalSalesAmount = totalSalesAgg[0]?.total || 0;
     });
   }
 };
+
+
+//date range
+
+
+export const getDashboardDataByDateRange = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        success: false,
+        message: "startDate and endDate are required",
+      });
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999); // 🔴 IMPORTANT
+
+    const dateFilter = {
+      createdAt: {
+        $gte: start,
+        $lte: end,
+      },
+    };
+
+    /* =========================
+       TOTAL SALES
+    ========================== */
+    const totalSalesAgg = await Bill.aggregate([
+      { $match: dateFilter },
+      { $unwind: "$items" },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: "$items.taxableAmount" },
+        },
+      },
+    ]);
+
+    const totalSalesAmount = Math.round(totalSalesAgg[0]?.total || 0);
+
+    /* =========================
+       TOTAL ORDERS
+    ========================== */
+    const totalOrders = await Bill.countDocuments(dateFilter);
+
+    /* =========================
+       ACTIVE CUSTOMERS
+    ========================== */
+    const activeCustomers = await User.countDocuments({
+      role: USER_ROLES.CUSTOMER,
+      isBlocked: false,
+    });
+
+    /* =========================
+       LOW STOCK
+    ========================== */
+    const settings = await StockAlert.findOne();
+    const threshold = settings?.threshold || 10;
+
+    const lowStockCount = await Product.countDocuments({
+      stock: { $lte: threshold },
+    });
+
+    /* =========================
+       SALES CHART
+    ========================== */
+    const salesChart = await Bill.aggregate([
+      { $match: dateFilter },
+      {
+        $group: {
+          _id: { $month: "$createdAt" },
+          total: { $sum: "$netAmount" },
+        },
+      },
+      {
+        $project: {
+          month: "$_id",
+          total: 1,
+          _id: 0,
+        },
+      },
+      { $sort: { month: 1 } },
+    ]);
+
+    /* =========================
+       PRODUCT PERFORMANCE
+    ========================== */
+    const productPerformance = await Bill.aggregate([
+      { $match: dateFilter },
+      { $unwind: "$items" },
+      {
+        $group: {
+          _id: "$items.itemName",
+          sold: { $sum: "$items.qty" },
+        },
+      },
+      {
+        $project: {
+          productName: "$_id",
+          sold: 1,
+          _id: 0,
+        },
+      },
+      { $limit: 6 },
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        cards: {
+          totalSalesAmount,
+          totalOrders,
+          activeCustomers,
+          lowStockCount,
+        },
+        charts: {
+          salesChart: salesChart || [],
+          productPerformance: productPerformance || [],
+        },
+      },
+      message: "Dashboard date range data fetched successfully",
+    });
+  } catch (error) {
+    console.error("Dashboard Date Range Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to load dashboard date range data",
+    });
+  }
+};
+

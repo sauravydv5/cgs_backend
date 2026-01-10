@@ -22,7 +22,6 @@ export const addBill = async (req, res) => {
       return res.status(400).json({ message: "Required fields missing" });
     }
 
-    /* 🔹 ROUNDING HELPER */
     const round2 = (n) => Math.round(n * 100) / 100;
 
     let finalItems = [];
@@ -37,7 +36,6 @@ export const addBill = async (req, res) => {
     for (const item of items) {
       let product = null;
 
-      /* 🔹 FIND PRODUCT */
       if (item.productId) {
         const pId = String(item.productId).trim();
         if (mongoose.Types.ObjectId.isValid(pId)) {
@@ -58,10 +56,16 @@ export const addBill = async (req, res) => {
         });
       }
 
-      /* 🔹 CALCULATIONS */
       const qty = Number(item.qty || 0);
       const rate = Number(item.rate || product.mrp);
-      const discountAmount = Number(item.discountAmount || 0);
+
+      const discountPercent = Number(
+        item.discountPercent ?? product.discount ?? 0
+      );
+
+      const discountAmount = round2(
+        (rate * qty * discountPercent) / 100
+      );
 
       const gross = round2(rate * qty);
       const taxable = round2(gross - discountAmount);
@@ -73,7 +77,6 @@ export const addBill = async (req, res) => {
 
       const total = round2(taxable + cgst + sgst);
 
-      /* 🔹 FINAL ITEM SNAPSHOT */
       finalItems.push({
         productId: product._id,
         sno: item.sno,
@@ -92,11 +95,12 @@ export const addBill = async (req, res) => {
         mrp: product.mrp,
         rate,
 
-        discountPercent: Number(product.discount || 0),
+        discountPercent,
         discountAmount,
 
         taxableAmount: taxable,
-        gstPercent,
+        gstPercent : item.gstPercent,
+
         cgst,
         sgst,
         igst: 0,
@@ -104,7 +108,6 @@ export const addBill = async (req, res) => {
         total,
       });
 
-      /* 🔹 RUNNING TOTALS (ROUNDED) */
       totalQty += qty;
       grossAmount = round2(grossAmount + gross);
       totalDiscount = round2(totalDiscount + discountAmount);
@@ -113,7 +116,6 @@ export const addBill = async (req, res) => {
       totalSGST = round2(totalSGST + sgst);
     }
 
-    /* ================= GENERATE BILL NO ================= */
     const lastBill = await Bill.findOne().sort({ createdAt: -1 });
     let nextNum = 1;
     if (lastBill && lastBill.billNo) {
@@ -130,7 +132,6 @@ export const addBill = async (req, res) => {
 
     const balanceAmount = round2(netAmount - (paidAmount || 0));
 
-    // Use provided status if it is "Draft", otherwise calculate based on payment
     let paymentStatus = providedStatus === "Draft" ? "Draft" : null;
 
     if (!paymentStatus) {
@@ -142,10 +143,17 @@ export const addBill = async (req, res) => {
           : "Unpaid";
     }
 
+    // Fix for Timezone: Add 5.5 hours to current UTC time to match IST
+    let finalBillDate = billDate;
+    if (!finalBillDate) {
+      const now = new Date();
+      finalBillDate = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+    }
+
     const bill = await Bill.create({
       customerId,
       billNo: newBillNo,
-      billDate,
+      billDate: finalBillDate,
       items: finalItems,
 
       totalQty,
@@ -166,7 +174,6 @@ export const addBill = async (req, res) => {
       notes,
     });
 
-    // Populate customer details for the response
     await bill.populate("customerId", "firstName lastName phoneNumber email");
 
     res.status(201).json({
@@ -178,6 +185,7 @@ export const addBill = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 
 /* ================= GET DRAFT BILLS ================= */
@@ -234,6 +242,11 @@ export const getBillsByDateRange = async (req, res) => {
     if (from && to) {
       const start = new Date(from);
       const end = new Date(to);
+
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return res.status(400).json({ message: "Invalid date format" });
+      }
+
       end.setHours(23, 59, 59, 999); // Ensure end date covers the full day
 
       const today = new Date();
@@ -288,7 +301,6 @@ export const getBillsByCustomer = async (req, res) => {
 export const updateBill = async (req, res) => {
   try {
     const { id } = req.params;
-
     const {
       customerId,
       agentId,
@@ -303,14 +315,10 @@ export const updateBill = async (req, res) => {
     } = req.body;
 
     const bill = await Bill.findById(id);
-    if (!bill) {
-      return res.status(404).json({ message: "Bill not found" });
-    }
+    if (!bill) return res.status(404).json({ message: "Bill not found" });
 
-    /* 🔹 ROUNDING HELPER */
     const round2 = (n) => Math.round(n * 100) / 100;
 
-    /* ---------- RECALCULATE TOTALS ---------- */
     let totalQty = 0;
     let grossAmount = 0;
     let totalDiscount = 0;
@@ -322,11 +330,16 @@ export const updateBill = async (req, res) => {
     const updatedItems = items.map((item) => {
       const qty = Number(item.qty || 0);
       const rate = Number(item.rate || item.mrp || 0);
-      const discountAmount = Number(item.discountAmount || 0);
-      const gstPercent = Number(item.gstPercent || 0);
+
+      const discountPercent = Number(item.discountPercent || 0);
+      const discountAmount = round2(
+        (rate * qty * discountPercent) / 100
+      );
 
       const gross = round2(rate * qty);
       const taxable = round2(gross - discountAmount);
+
+      const gstPercent = Number(item.gstPercent || 0);
 
       const cgst = round2((taxable * gstPercent) / 200);
       const sgst = round2((taxable * gstPercent) / 200);
@@ -334,7 +347,6 @@ export const updateBill = async (req, res) => {
 
       const total = round2(taxable + cgst + sgst + igst);
 
-      /* 🔹 RUNNING TOTALS */
       totalQty += qty;
       grossAmount = round2(grossAmount + gross);
       totalDiscount = round2(totalDiscount + discountAmount);
@@ -347,6 +359,7 @@ export const updateBill = async (req, res) => {
         ...item,
         qty,
         rate,
+        discountPercent,
         discountAmount,
         taxableAmount: taxable,
         cgst,
@@ -366,7 +379,6 @@ export const updateBill = async (req, res) => {
 
     const balanceAmount = round2(netAmount - (paidAmount || 0));
 
-    // Use provided status if it is "Draft", otherwise calculate based on payment
     let paymentStatus = providedStatus === "Draft" ? "Draft" : null;
 
     if (!paymentStatus) {
@@ -378,11 +390,10 @@ export const updateBill = async (req, res) => {
           : "Unpaid";
     }
 
-    /* ---------- UPDATE ---------- */
     bill.customerId = customerId;
     bill.agentId = agentId;
     bill.billNo = billNo;
-    bill.billDate = billDate;
+    if (billDate) bill.billDate = billDate;
     bill.items = updatedItems;
 
     bill.totalQty = totalQty;
@@ -399,7 +410,6 @@ export const updateBill = async (req, res) => {
     bill.paidAmount = paidAmount;
     bill.balanceAmount = balanceAmount;
     bill.paymentStatus = paymentStatus;
-
     bill.notes = notes;
 
     await bill.save();
@@ -409,6 +419,7 @@ export const updateBill = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 
 
