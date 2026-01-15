@@ -38,7 +38,7 @@ const billSchema = new mongoose.Schema(
     customerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required: false,
     },
     customerName: { type: String, default: "" },
 
@@ -93,7 +93,7 @@ const billSchema = new mongoose.Schema(
 );
 
 billSchema.pre("save", async function (next) {
-  if (this.isModified("customerId")) {
+  if (this.isModified("customerId") && this.customerId) {
     try {
       const User = mongoose.model("User");
       const customer = await User.findById(this.customerId);

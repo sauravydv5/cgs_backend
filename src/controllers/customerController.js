@@ -460,6 +460,9 @@ const customer = await User.create(customerData);
     delete customerResponse.resetPasswordToken;
     delete customerResponse.resetPasswordExpiresAt;
 
+    // Manually add customerId to the response object for frontend clarity
+    customerResponse.customerId = customerResponse._id;
+
     return res.status(201).json(
       responseHandler.success(
         {

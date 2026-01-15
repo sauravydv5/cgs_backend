@@ -2,7 +2,7 @@ import Bill from "../models/bill.js";
 
 export const generateBillByCustomer = async (req, res) => {
   try {
-    const { customerId } = req.params;
+    const customerId = req.params.customerId || req.params.id;
 
     const bills = await Bill.find({ customerId })
       .sort({ createdAt: -1 })

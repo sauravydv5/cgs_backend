@@ -1,5 +1,6 @@
 import Bill from "../models/bill.js";
 import Product from "../models/product.js";
+import User from "../models/user.js";
 import mongoose from "mongoose";
 
 /* ================= CREATE BILL ================= */
@@ -14,12 +15,55 @@ export const addBill = async (req, res) => {
       roundOff,
       notes,
       paymentStatus: providedStatus,
+      customerName,
+      customerPhone,
     } = req.body;
 
-    const customerId = req.body.customerId || req.params.customerId;
+    let customerId = req.body.customerId || req.params.customerId;
 
-    if (!customerId || !items?.length) {
+    // Fix: Handle invalid ObjectId (including "undefined", "null" strings)
+    if (customerId && !mongoose.Types.ObjectId.isValid(customerId)) {
+      customerId = null;
+    }
+
+    if (!items?.length) {
       return res.status(400).json({ message: "Required fields missing" });
+    }
+
+    // Handle automatic customer creation if no ID is provided
+    if (!customerId) {
+      let customer;
+      // Sanitize phone number if it comes as string "undefined"
+      const validPhone = (customerPhone && customerPhone !== "undefined" && customerPhone !== "null") ? customerPhone : undefined;
+
+      // Use phone number to find customer if provided, as it's unique
+      if (validPhone) {
+        customer = await User.findOne({ phoneNumber: validPhone });
+      }
+
+      if (customer) {
+        customerId = customer._id;
+      } else {
+        // If no customer found, create a new one.
+        // The User model's pre-save hook will auto-generate a customerCode.
+        try {
+          const newCustomer = await User.create({
+            firstName: (customerName && customerName !== "undefined" && customerName !== "null") ? customerName : "Customer",
+            phoneNumber: validPhone,
+          });
+          customerId = newCustomer._id;
+        } catch (error) {
+          // This catch block handles errors during User.create
+          if (error.code === 11000 && validPhone) {
+            // This is a race condition, we can now safely find the user.
+            const existingCustomer = await User.findOne({ phoneNumber: validPhone });
+            if (existingCustomer) customerId = existingCustomer._id;
+            else return res.status(500).json({ message: "Error resolving customer information." });
+          } else {
+            return res.status(400).json({ message: `Failed to create customer: ${error.message}` });
+          }
+        }
+      }
     }
 
     const round2 = (n) => Math.round(n * 100) / 100;
@@ -176,10 +220,17 @@ export const addBill = async (req, res) => {
 
     await bill.populate("customerId", "firstName lastName phoneNumber email");
 
+    const customerObject = bill.customerId ? bill.customerId.toObject() : null;
+    if (customerObject) {
+      // Manually add customerId to the response object for frontend clarity
+      customerObject.customerId = customerObject._id;
+    }
+
     res.status(201).json({
       success: true,
       message: `Bill generated successfully: ${bill.billNo}`,
       bill,
+      customer: customerObject,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -279,7 +330,7 @@ export const getBillsByDateRange = async (req, res) => {
 /* ================= GET BILLS BY CUSTOMER ================= */
 export const getBillsByCustomer = async (req, res) => {
   try {
-    const { customerId } = req.params;
+    const customerId = req.params.customerId || req.params.id;
     if (!customerId) {
       return res.status(400).json({ message: "Customer ID is required" });
     }

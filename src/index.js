@@ -19,7 +19,9 @@ import productRoutes from "./routes/productRoutes.js";
 
 import addressRoutes from "./routes/addressRoutes.js";
 
+
 import categoryRoutes from "./routes/categoryRoutes.js";
+import subcategoryRoutes from "./routes/subCategoryRoutes.js";
 
 import customerRoutes from "./routes/customerRoutes.js";
 // import ticketRoutes from "./routes/ticketRoutes.js";
@@ -81,6 +83,7 @@ app.use("/api/products", productRoutes);
 // app.use("/api/profile", profileRoutes);
 app.use("/api/addresses", addressRoutes);
 app.use("/api/categories", categoryRoutes);
+app.use("/api/subcategories", subcategoryRoutes);
 app.use("/api/customers", customerRoutes);
 // app.use("/api/tickets", ticketRoutes);
 app.use("/api/bills", billRoutes);
