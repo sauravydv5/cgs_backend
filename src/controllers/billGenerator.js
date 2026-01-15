@@ -87,11 +87,13 @@ const getInvoiceTemplate = (customer, items) => {
   const totalTax = totalCGST + totalSGST;
   const finalAmount = calculatedItems.reduce((s, it) => s + (it.finalAmount || 0), 0);
 
-  const currentDate = new Date().toLocaleDateString("en-IN");
-  const currentTime = new Date().toLocaleTimeString("en-IN", {
+  const now = new Date();
+  const currentDate = now.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" });
+  const currentTime = now.toLocaleTimeString("en-IN", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: true,
+    timeZone: "Asia/Kolkata",
   });
 
   const customerName =

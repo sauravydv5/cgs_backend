@@ -418,16 +418,6 @@ export const addCustomer = async (req, res) => {
     const cleanEmail = email?.trim() || undefined;
     const cleanPhone = phoneNumber?.trim() || undefined;
 
-    // Check if email already exists
-    if (cleanEmail) {
-      const existingEmailUser = await User.findOne({ email: cleanEmail });
-      if (existingEmailUser) {
-        return res
-          .status(409)
-          .json(responseHandler.error("Email already exists"));
-      }
-    }
-
     // Check if phone number already exists
     if (cleanPhone) {
       const existingPhoneUser = await User.findOne({ phoneNumber: cleanPhone });

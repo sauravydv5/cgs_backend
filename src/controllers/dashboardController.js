@@ -42,7 +42,9 @@ const totalSalesAmount = totalSalesAgg[0]?.total || 0;
     }
     const threshold = settings.threshold;
 
-    const lowStockCount = await Product.countDocuments({ stock: { $lte: threshold } });
+    const lowStockCount = await Product.countDocuments({
+      stock: { $gt: 0, $lte: threshold },
+    });
 
     /* =========================
        SALES CHART (MONTH WISE)
@@ -177,7 +179,7 @@ export const getDashboardDataByDateRange = async (req, res) => {
     const threshold = settings?.threshold || 10;
 
     const lowStockCount = await Product.countDocuments({
-      stock: { $lte: threshold },
+      stock: { $gt: 0, $lte: threshold },
     });
 
     /* =========================
@@ -247,4 +249,3 @@ export const getDashboardDataByDateRange = async (req, res) => {
     });
   }
 };
-

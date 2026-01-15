@@ -5,6 +5,7 @@ import Cart from "../models/cart.js";
 import Order from "../models/order.js";
 import Product from "../models/product.js";
 import Address from "../models/address.js";
+import User from "../models/user.js";
 import responseHandler from "../utils/responseHandler.js";
 import { emitOrderStatusUpdate } from "../services/socketService.js";
 
@@ -32,6 +33,12 @@ const getRazorpayInstance = () => {
 export const createOrder = async (req, res) => {
   try {
     const userId = req.user.id;
+    const user = await User.findById(userId).select("phoneNumber");
+
+    if (!user) {
+      // This case is unlikely if the user is authenticated
+      return res.status(404).json(responseHandler.error("User not found"));
+    }
 
     // 1️⃣ Fetch cart
     const cart = await Cart.findOne({ user: userId }).populate("items.product");
@@ -115,7 +122,8 @@ export const createOrder = async (req, res) => {
         city: address.city,
         state: address.state,
         zip: address.zip,
-        country: address.country
+        country: address.country,
+        phoneNumber: address.phoneNumber || user.phoneNumber,
       },
       items: orderItems,
       totalPrice: totalPrice.toFixed(2),
@@ -218,17 +226,20 @@ export const getOrderById = async (req, res) => {
 export const getAllOrdersForAdmin = async (req, res) => {
   try {
     const orders = await Order.find()
-      .populate("user", "firstName lastName email") // Populate user details
-      .sort({ createdAt: 1 }); // earliest first
-    if (!orders || orders.length === 0) {
-      return res.status(404).json(responseHandler.error("No orders found"));
-    }
+      .populate({
+        path: "user",
+        select: "firstName lastName phoneNumber email"
+      })
+      .sort({ createdAt: -1 });
 
-    return res.json(responseHandler.success(orders, "All orders retrieved successfully"));
+    return res.json(
+      responseHandler.success(orders, "All orders retrieved successfully")
+    );
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
   }
 };
+
 
 // Get order history with filtering and pagination
 export const getOrderHistory = async (req, res) => {
@@ -316,7 +327,8 @@ export const getOrderHistory = async (req, res) => {
       updatedAt: order.updatedAt,
       address: {
         city: order.address.city,
-        state: order.address.state
+        state: order.address.state,
+        phoneNumber: order.address.phoneNumber,
       }
     }));
 
