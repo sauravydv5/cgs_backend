@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import Subcategory from "../models/subcategory.js";
 import Category from "../models/category.js";
 import responseHandler from "../utils/responseHandler.js";
@@ -14,7 +15,8 @@ export const getSubcategories = async (req, res) => {
     const subcategories = await Subcategory
       .find(filter)
       .populate("category", "name")
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
     return res.json(
       responseHandler.success(subcategories, "Subcategories fetched successfully")
@@ -27,7 +29,27 @@ export const getSubcategories = async (req, res) => {
 // ADD subcategory
 export const addSubcategory = async (req, res) => {
   try {
-    const { name, description, category } = req.body;
+    let { name, description, category, categoryId } = req.body;
+
+    // Handle if category is sent as categoryId or inside an object
+    if (!category && categoryId) category = categoryId;
+    
+    // Extract ID if category is an object (handle _id or id)
+    if (category && typeof category === "object") {
+      category = category._id || category.id || category.value;
+    }
+
+    // Ensure it's a string and trim whitespace
+    if (category && typeof category === "string") {
+      category = category.trim();
+      if (category === "null" || category === "undefined" || category === "") category = null;
+    }
+
+    if (!category || !mongoose.Types.ObjectId.isValid(category)) {
+      return res
+        .status(400)
+        .json(responseHandler.error("Valid Category ID is required"));
+    }
 
     const categoryExists = await Category.findById(category);
     if (!categoryExists) {
