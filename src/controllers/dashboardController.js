@@ -1,102 +1,106 @@
 import Bill from "../models/bill.js";
-import Order from "../models/order.js";
 import Product from "../models/product.js";
 import StockAlert from "../models/stock.js";
-import Purchase from "../models/purchase.js";
 import User from "../models/user.js";
 import { USER_ROLES } from "../constants/auth.js";
+
+/* ======================================================
+   NORMAL DASHBOARD (NO DATE FILTER)
+====================================================== */
 
 export const getDashboardData = async (req, res) => {
   try {
     /* =========================
-       DASHBOARD CARDS
+       TOTAL SALES
     ========================== */
+    const totalSalesAgg = await Bill.aggregate([
+      {
+        $group: {
+          _id: null,
+          total: { $sum: "$netAmount" },
+        },
+      },
+    ]);
 
-    // 💰 Total Sales (netAmount from Bill)
-   const totalSalesAgg = await Bill.aggregate([
-  { $unwind: "$items" },
-  {
-    $group: {
-      _id: null,
-      total: { $sum: "$items.taxableAmount" } // AMT AFT DIS
-    }
-  }
-]);
+    const totalSalesAmount = Math.round(totalSalesAgg[0]?.total || 0);
 
-const totalSalesAmount = totalSalesAgg[0]?.total || 0;
-
-    // 📦 Total Orders (Bills = Orders)
+    /* =========================
+       TOTAL ORDERS
+    ========================== */
     const totalOrders = await Bill.countDocuments();
 
-    // 👥 Active Customers (User model only)
+    /* =========================
+       ACTIVE CUSTOMERS
+    ========================== */
     const activeCustomers = await User.countDocuments({
       role: USER_ROLES.CUSTOMER,
       isBlocked: false,
     });
 
-    // ⚠️ Low Stock Products
-    // Fetch threshold from settings, default to 10 if not set
-    let settings = await StockAlert.findOne();
-    if (!settings) {
-      settings = { threshold: 10 }; // Use default if no settings exist
-    }
-    const threshold = settings.threshold;
+    /* =========================
+       LOW STOCK
+    ========================== */
+    const settings = await StockAlert.findOne();
+    const threshold = settings?.threshold || 10;
 
     const lowStockCount = await Product.countDocuments({
       stock: { $gt: 0, $lte: threshold },
     });
 
     /* =========================
-       SALES CHART (MONTH WISE)
+       SALES CHART (MONTH + YEAR)
     ========================== */
     const salesChart = await Bill.aggregate([
       {
         $group: {
-          _id: { $month: "$createdAt" },
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" },
+          },
           total: { $sum: "$netAmount" },
         },
       },
       {
         $project: {
-          month: "$_id",
+          year: "$_id.year",
+          month: "$_id.month",
           total: 1,
           _id: 0,
         },
       },
-      { $sort: { month: 1 } },
+      { $sort: { year: 1, month: 1 } },
     ]);
 
     /* =========================
        PRODUCT PERFORMANCE
-       (from bill.items[])
     ========================== */
-   const productPerformance = await Bill.aggregate([
-  { $unwind: "$items" },
-  {
-    $group: {
-      _id: "$items.itemName",
-      sold: { $sum: "$items.qty" }
-    }
-  },
-  {
-    $project: {
-      productName: "$_id",
-      sold: 1,
-      _id: 0
-    }
-  },
-  { $limit: 6 }
-]);
-
+    const productPerformance = await Bill.aggregate([
+      { $unwind: "$items" },
+      {
+        $group: {
+          _id: "$items.itemName",
+          sold: { $sum: "$items.qty" },
+        },
+      },
+      { $sort: { sold: -1 } },
+      { $limit: 6 },
+      {
+        $project: {
+          productName: "$_id",
+          sold: 1,
+          _id: 0,
+        },
+      },
+    ]);
 
     /* =========================
-       FINAL RESPONSE
+       RESPONSE
     ========================== */
     res.status(200).json({
       success: true,
       data: {
         cards: {
-          totalSalesAmount: Math.round(totalSalesAmount),
+          totalSalesAmount,
           totalOrders,
           activeCustomers,
           lowStockCount,
@@ -117,9 +121,9 @@ const totalSalesAmount = totalSalesAgg[0]?.total || 0;
   }
 };
 
-
-//date range
-
+/* ======================================================
+   DASHBOARD WITH DATE RANGE FILTER
+====================================================== */
 
 export const getDashboardDataByDateRange = async (req, res) => {
   try {
@@ -132,15 +136,12 @@ export const getDashboardDataByDateRange = async (req, res) => {
       });
     }
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999); // 🔴 IMPORTANT
+    // ✅ SAFE DATE PARSING (NO TIMEZONE BUG)
+    const start = new Date(`${startDate}T00:00:00.000Z`);
+    const end = new Date(`${endDate}T23:59:59.999Z`);
 
     const dateFilter = {
-      createdAt: {
-        $gte: start,
-        $lte: end,
-      },
+      createdAt: { $gte: start, $lte: end },
     };
 
     /* =========================
@@ -148,11 +149,10 @@ export const getDashboardDataByDateRange = async (req, res) => {
     ========================== */
     const totalSalesAgg = await Bill.aggregate([
       { $match: dateFilter },
-      { $unwind: "$items" },
       {
         $group: {
           _id: null,
-          total: { $sum: "$items.taxableAmount" },
+          total: { $sum: "$netAmount" },
         },
       },
     ]);
@@ -182,25 +182,30 @@ export const getDashboardDataByDateRange = async (req, res) => {
       stock: { $gt: 0, $lte: threshold },
     });
 
+
     /* =========================
-       SALES CHART
+       SALES CHART (MONTH + YEAR)
     ========================== */
     const salesChart = await Bill.aggregate([
       { $match: dateFilter },
       {
         $group: {
-          _id: { $month: "$createdAt" },
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" },
+          },
           total: { $sum: "$netAmount" },
         },
       },
       {
         $project: {
-          month: "$_id",
+          year: "$_id.year",
+          month: "$_id.month",
           total: 1,
           _id: 0,
         },
       },
-      { $sort: { month: 1 } },
+      { $sort: { year: 1, month: 1 } },
     ]);
 
     /* =========================
@@ -215,6 +220,8 @@ export const getDashboardDataByDateRange = async (req, res) => {
           sold: { $sum: "$items.qty" },
         },
       },
+      { $sort: { sold: -1 } },
+      { $limit: 6 },
       {
         $project: {
           productName: "$_id",
@@ -222,7 +229,6 @@ export const getDashboardDataByDateRange = async (req, res) => {
           _id: 0,
         },
       },
-      { $limit: 6 },
     ]);
 
     res.status(200).json({
@@ -235,8 +241,8 @@ export const getDashboardDataByDateRange = async (req, res) => {
           lowStockCount,
         },
         charts: {
-          salesChart: salesChart || [],
-          productPerformance: productPerformance || [],
+          salesChart,
+          productPerformance,
         },
       },
       message: "Dashboard date range data fetched successfully",

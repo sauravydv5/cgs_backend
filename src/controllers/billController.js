@@ -34,7 +34,12 @@ export const addBill = async (req, res) => {
     if (!customerId) {
       let customer;
       // Sanitize phone number if it comes as string "undefined"
-      const validPhone = (customerPhone && customerPhone !== "undefined" && customerPhone !== "null") ? customerPhone : undefined;
+      const validPhone =
+        customerPhone &&
+        customerPhone !== "undefined" &&
+        customerPhone !== "null"
+          ? customerPhone
+          : undefined;
 
       // Use phone number to find customer if provided, as it's unique
       if (validPhone) {
@@ -48,7 +53,12 @@ export const addBill = async (req, res) => {
         // The User model's pre-save hook will auto-generate a customerCode.
         try {
           const newCustomer = await User.create({
-            firstName: (customerName && customerName !== "undefined" && customerName !== "null") ? customerName : "Customer",
+            firstName:
+              customerName &&
+              customerName !== "undefined" &&
+              customerName !== "null"
+                ? customerName
+                : "Customer",
             phoneNumber: validPhone,
           });
           customerId = newCustomer._id;
@@ -56,11 +66,18 @@ export const addBill = async (req, res) => {
           // This catch block handles errors during User.create
           if (error.code === 11000 && validPhone) {
             // This is a race condition, we can now safely find the user.
-            const existingCustomer = await User.findOne({ phoneNumber: validPhone });
+            const existingCustomer = await User.findOne({
+              phoneNumber: validPhone,
+            });
             if (existingCustomer) customerId = existingCustomer._id;
-            else return res.status(500).json({ message: "Error resolving customer information." });
+            else
+              return res
+                .status(500)
+                .json({ message: "Error resolving customer information." });
           } else {
-            return res.status(400).json({ message: `Failed to create customer: ${error.message}` });
+            return res
+              .status(400)
+              .json({ message: `Failed to create customer: ${error.message}` });
           }
         }
       }
@@ -107,9 +124,7 @@ export const addBill = async (req, res) => {
         item.discountPercent ?? product.discount ?? 0
       );
 
-      const discountAmount = round2(
-        (rate * qty * discountPercent) / 100
-      );
+      const discountAmount = round2((rate * qty * discountPercent) / 100);
 
       const gross = round2(rate * qty);
       const taxable = round2(gross - discountAmount);
@@ -143,7 +158,7 @@ export const addBill = async (req, res) => {
         discountAmount,
 
         taxableAmount: taxable,
-        gstPercent : item.gstPercent,
+        gstPercent: gstPercent,
 
         cgst,
         sgst,
@@ -180,18 +195,14 @@ export const addBill = async (req, res) => {
 
     if (!paymentStatus) {
       paymentStatus =
-        balanceAmount === 0
-          ? "Paid"
-          : paidAmount > 0
-          ? "Partial"
-          : "Unpaid";
+        balanceAmount === 0 ? "Paid" : paidAmount > 0 ? "Partial" : "Unpaid";
     }
 
     // Fix for Timezone: Add 5.5 hours to current UTC time to match IST
     let finalBillDate = billDate;
     if (!finalBillDate) {
       const now = new Date();
-      finalBillDate = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+      finalBillDate = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
     }
 
     const bill = await Bill.create({
@@ -237,12 +248,12 @@ export const addBill = async (req, res) => {
   }
 };
 
-
-
 /* ================= GET DRAFT BILLS ================= */
 export const getDraftBills = async (req, res) => {
   try {
-    const bills = await Bill.find({ paymentStatus: { $in: ["Draft", "Unpaid"] } })
+    const bills = await Bill.find({
+      paymentStatus: { $in: ["Draft", "Unpaid"] },
+    })
       .populate("customerId", "firstName lastName phoneNumber")
       .sort({ createdAt: -1 });
 
@@ -304,10 +315,14 @@ export const getBillsByDateRange = async (req, res) => {
       today.setHours(23, 59, 59, 999);
 
       if (start > today || end > today) {
-        return res.status(400).json({ message: "Future dates are not allowed" });
+        return res
+          .status(400)
+          .json({ message: "Future dates are not allowed" });
       }
       if (end < start) {
-        return res.status(400).json({ message: "End date cannot be prior to start date" });
+        return res
+          .status(400)
+          .json({ message: "End date cannot be prior to start date" });
       }
 
       filter.billDate = {
@@ -340,7 +355,9 @@ export const getBillsByCustomer = async (req, res) => {
       .sort({ billDate: -1 });
 
     if (!bills || bills.length === 0) {
-      return res.status(404).json({ success: false, message: "No bills found for this customer" });
+      return res
+        .status(404)
+        .json({ success: false, message: "No bills found for this customer" });
     }
 
     res.status(200).json({ success: true, bills });
@@ -383,14 +400,12 @@ export const updateBill = async (req, res) => {
       const rate = Number(item.rate || item.mrp || 0);
 
       const discountPercent = Number(item.discountPercent || 0);
-      const discountAmount = round2(
-        (rate * qty * discountPercent) / 100
-      );
+      const discountAmount = round2((rate * qty * discountPercent) / 100);
 
       const gross = round2(rate * qty);
       const taxable = round2(gross - discountAmount);
 
-      const gstPercent = Number(item.gstPercent || 0);
+      const gstPercent = String(product.hsnCode) === "3304" ? 5 : 3;
 
       const cgst = round2((taxable * gstPercent) / 200);
       const sgst = round2((taxable * gstPercent) / 200);
@@ -421,11 +436,7 @@ export const updateBill = async (req, res) => {
     });
 
     const netAmount = round2(
-      taxableAmount +
-        totalCGST +
-        totalSGST +
-        totalIGST +
-        (roundOff || 0)
+      taxableAmount + totalCGST + totalSGST + totalIGST + (roundOff || 0)
     );
 
     const balanceAmount = round2(netAmount - (paidAmount || 0));
@@ -434,11 +445,7 @@ export const updateBill = async (req, res) => {
 
     if (!paymentStatus) {
       paymentStatus =
-        balanceAmount === 0
-          ? "Paid"
-          : paidAmount > 0
-          ? "Partial"
-          : "Unpaid";
+        balanceAmount === 0 ? "Paid" : paidAmount > 0 ? "Partial" : "Unpaid";
     }
 
     bill.customerId = customerId;
@@ -471,9 +478,6 @@ export const updateBill = async (req, res) => {
   }
 };
 
-
-
-
 export const deleteBill = async (req, res) => {
   try {
     const { id } = req.params;
@@ -505,7 +509,11 @@ export const updateBillPaymentStatus = async (req, res) => {
     if (!bill) {
       return res.status(404).json({ message: "Bill not found" });
     }
-    res.json({ success: true, message: "Bill payment status updated successfully", bill });
+    res.json({
+      success: true,
+      message: "Bill payment status updated successfully",
+      bill,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

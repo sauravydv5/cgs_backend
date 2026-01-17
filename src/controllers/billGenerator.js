@@ -1,12 +1,18 @@
 import Bill from "../models/bill.js";
+import SaleReturn from "../models/saleReturn.js";
 
 export const generateBillByCustomer = async (req, res) => {
   try {
     const customerId = req.params.customerId || req.params.id;
 
-    const bills = await Bill.find({ customerId })
-      .sort({ createdAt: -1 })
-      .populate("customerId");
+    const [bills, saleReturns] = await Promise.all([
+      Bill.find({ customerId })
+        .sort({ createdAt: -1 })
+        .populate("customerId"),
+      SaleReturn.find({ customerId })
+        .sort({ createdAt: -1 })
+        .populate("items.productId", "productName hsnCode"),
+    ]);
 
     if (!bills || bills.length === 0) {
       return res.status(404).json({
@@ -16,6 +22,17 @@ export const generateBillByCustomer = async (req, res) => {
     }
 
     const customer = bills[0].customerId || {};
+
+    // Create a map of bill items for quick lookup of discount info
+    const billItemMap = new Map();
+    bills.forEach((bill) => {
+      if (Array.isArray(bill.items)) {
+        bill.items.forEach((item) => {
+          const key = `${bill._id.toString()}_${item.productId.toString()}`;
+          billItemMap.set(key, item);
+        });
+      }
+    });
 
     let allItems = [];
     bills.forEach((bill) => {
@@ -30,7 +47,28 @@ export const generateBillByCustomer = async (req, res) => {
       }
     });
 
-    const htmlContent = getInvoiceTemplate(customer, allItems);
+    let allReturnItems = [];
+    saleReturns.forEach((ret) => {
+      if (Array.isArray(ret.items)) {
+        allReturnItems = allReturnItems.concat(
+          ret.items.map((item) => {
+            const key = `${ret.billId.toString()}_${item.productId?._id?.toString()}`;
+            const originalItem = billItemMap.get(key);
+            return {
+              ...item.toObject(),
+              returnId: ret.returnId,
+              billNo: ret.billNo,
+              returnDate: ret.date,
+              itemName: item.productId?.productName || "N/A",
+              hsnCode: item.productId?.hsnCode || "-",
+              discountPercent: originalItem?.discountPercent || 0,
+            };
+          })
+        );
+      }
+    });
+
+    const htmlContent = getInvoiceTemplate(customer, allItems, allReturnItems);
     const base64Html = Buffer.from(htmlContent).toString("base64");
 
     res.status(200).json({
@@ -46,7 +84,7 @@ export const generateBillByCustomer = async (req, res) => {
   }
 };
 
-const getInvoiceTemplate = (customer, items) => {
+const getInvoiceTemplate = (customer, items, returnItems) => {
   // Calculate per-item values and totals
   const calculatedItems = items.map((item) => {
     const qty = Number(item.qty) || 0;
@@ -84,8 +122,49 @@ const getInvoiceTemplate = (customer, items) => {
   const totalTaxable = calculatedItems.reduce((s, it) => s + (it.taxable || 0), 0);
   const totalCGST = calculatedItems.reduce((s, it) => s + (it.cgst || 0), 0);
   const totalSGST = calculatedItems.reduce((s, it) => s + (it.sgst || 0), 0);
-  const totalTax = totalCGST + totalSGST;
-  const finalAmount = calculatedItems.reduce((s, it) => s + (it.finalAmount || 0), 0);
+  const totalSalesValue = calculatedItems.reduce(
+    (s, it) => s + (it.finalAmount || 0),
+    0
+  );
+
+  // Calculate Return Items with Discount
+const calculatedReturnItems = returnItems.map((item) => {
+  const qty = Number(item.qty) || 0;
+  const rate = Number(item.rate) || 0;
+  const discountPercent = Number(item.discountPercent) || 0;
+
+  const base = qty * rate;
+  const discount = (base * discountPercent) / 100;
+  const taxable = base - discount;
+
+  const gstRate = item.hsnCode === "3304" ? 5 : 3;
+  const cgst = (taxable * gstRate) / 200;
+  const sgst = (taxable * gstRate) / 200;
+
+  const finalAmount = taxable + cgst + sgst;
+
+  return {
+    ...item,
+    qty,
+    rate,
+    discountPercent,
+    discountAmount: discount,
+    taxable,
+    cgst,
+    sgst,
+    finalAmount,
+  };
+});
+
+
+  // Return Totals
+  const totalReturnValue = calculatedReturnItems.reduce(
+    (s, it) => s + (it.finalAmount || 0),
+    0
+  );
+
+  // Final Net Amount
+  const netPayable = totalSalesValue - totalReturnValue;
 
   const now = new Date();
   const currentDate = now.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" });
@@ -95,6 +174,48 @@ const getInvoiceTemplate = (customer, items) => {
     hour12: true,
     timeZone: "Asia/Kolkata",
   });
+
+  const returnItemsHtml =
+    returnItems.length > 0
+      ? `
+    <div style="margin-top: 30px;">
+      <h3 style="border-bottom: 1px solid #eee; padding-bottom: 5px;">(SR)</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>SR</th>
+            <th>BILL NO</th>
+            <th>ITEM NAME</th>
+            <th>HSN CODE</th>
+            <th>QTY</th>
+            <th>RATE</th>
+            <th>DIS%</th>
+            <th>DIS AMT</th>
+            <th>AMT</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${calculatedReturnItems
+            .map(
+              (item, i) => `
+          <tr>
+            <td>${i + 1}</td>
+            <td>${item.billNo || "-"}</td>
+            <td>${item.itemName}</td>
+            <td>${item.hsnCode || "-"}</td>
+            <td class="center">${item.qty}</td>
+            <td class="right">₹${(item.rate || 0).toFixed(2)}</td>
+            <td class="center">${item.discountPercent}%</td>
+            <td class="right">₹${item.discountAmount.toFixed(2)}</td>
+            <td class="right">₹${item.finalAmount.toFixed(2)}</td>
+          </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `
+      : "";
 
   const customerName =
     customer.name ||
@@ -143,24 +264,25 @@ const getInvoiceTemplate = (customer, items) => {
 </div>
 
 <div style="display:flex;justify-content:space-between;margin-bottom:20px;">
-  <div>
+  <div style="line-height: 1.5;">
     <strong>Bill To:</strong><br/>
     ${customerName}<br/>
-    ${customer.address || ""}<br/>
     ${customer.phoneNumber || ""}
   </div>
 
   <div style="text-align:right;">
-    <strong>Bill No:</strong> ${calculatedItems[0]?.billNo || "-"}<br/>
+    <strong>Statement</strong><br/>
     <strong>Date:</strong> ${currentDate}<br/>
-    <strong>Time:</strong> ${currentTime}
+    <strong>Issued Time:</strong> ${currentTime}
   </div>
 </div>
 
+<h3 style="border-bottom: 1px solid #eee; padding-bottom: 5px;">(SL)</h3>
 <table>
 <thead>
 <tr>
   <th>SL</th>
+  <th>BILL NO</th>
   <th>ITEM NAME</th>
   <th>HSN CODE</th>
   <th>QTY</th>
@@ -176,6 +298,7 @@ ${calculatedItems
     (item, i) => `
 <tr>
   <td>${i + 1}</td>
+  <td>${item.billNo}</td>
   <td>${item.itemName}</td>
   <td>${item.hsnCode || "-"}</td>
   <td class="center">${item.qty}</td>
@@ -188,6 +311,8 @@ ${calculatedItems
   .join("")}
 </tbody>
 </table>
+
+${returnItemsHtml}
 
 <div class="totals">
 <table class="totals-table">
@@ -211,9 +336,23 @@ ${calculatedItems
   <td>SGST:</td>
   <td style="text-align:right;">₹${totalSGST.toFixed(2)}</td>
 </tr>
+<tr style="font-weight: bold; border-top: 1px solid #eee;">
+  <td>Total Sale Value:</td>
+  <td style="text-align:right;">₹${totalSalesValue.toFixed(2)}</td>
+</tr>
+${
+  returnItems.length > 0
+    ? `
+<tr>
+  <td>Return Value:</td>
+  <td style="text-align:right;">- ₹${totalReturnValue.toFixed(2)}</td>
+</tr>
+`
+    : ""
+}
 <tr class="total-row">
-  <td>BILL AMT:</td>
-  <td style="text-align:right;">₹${finalAmount.toFixed(2)}</td>
+  <td>NET PAYABLE:</td>
+  <td style="text-align:right;">₹${netPayable.toFixed(2)}</td>
 </tr>
 </table>
 </div>
