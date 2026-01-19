@@ -22,6 +22,27 @@ export const addSaleReturn = async (req, res) => {
       return res.status(404).json({ success: false, message: "Bill not found" });
     }
 
+    // 🔴 STOP duplicate product return
+const existingReturn = await SaleReturn.findOne({ billId: bill._id });
+
+if (existingReturn) {
+  for (const item of items) {
+    const productId = item.productId || item.product;
+
+    const alreadyReturned = existingReturn.items.some(
+      (i) => i.productId.toString() === productId.toString()
+    );
+
+    if (alreadyReturned) {
+      return res.status(400).json({
+        success: false,
+        message: "Return already exists!",
+      });
+    }
+  }
+}
+
+
     // 2. Generate Return ID (RET-001)
     // Step 2: Generate a unique, sequential Return ID (e.g., RET-001, RET-002).
     // This provides a human-readable identifier for the return transaction.
