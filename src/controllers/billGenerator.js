@@ -62,6 +62,7 @@ export const generateBillByCustomer = async (req, res) => {
               itemName: item.productId?.productName || "N/A",
               hsnCode: item.productId?.hsnCode || "-",
               discountPercent: originalItem?.discountPercent || 0,
+              gstPercent: originalItem?.gstPercent || 0,
             };
           })
         );
@@ -96,7 +97,7 @@ const getInvoiceTemplate = (customer, items, returnItems) => {
     const taxable = base - discount; // taxable after discount
 
     // Determine GST rate (existing business rule)
-    const gstRate = item.hsnCode === "3304" ? 5 : 3;
+    const gstRate = item.gstPercent ?? (item.hsnCode === "3304" ? 5 : 3);
     const cgst = (taxable * gstRate) / 200; // half of gstRate
     const sgst = (taxable * gstRate) / 200;
 
@@ -137,9 +138,9 @@ const calculatedReturnItems = returnItems.map((item) => {
   const discount = (base * discountPercent) / 100;
   const taxable = base - discount;
 
-  const gstRate = item.hsnCode === "3304" ? 5 : 3;
-  const cgst = (taxable * gstRate) / 200;
-  const sgst = (taxable * gstRate) / 200;
+  const gstRate = item.gstPercent ?? (item.hsnCode === "3304" ? 5 : 3);
+  const cgst = taxable * gstRate / 200;
+  const sgst = taxable * gstRate / 200;
 
   const finalAmount = taxable + cgst + sgst;
 

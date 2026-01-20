@@ -11,8 +11,8 @@ export const addBill = async (req, res) => {
       billDate,
       items,
       paymentMode,
-      paidAmount,
-      roundOff,
+      paidAmount = 0,
+      roundOff = 0,
       notes,
       paymentStatus: providedStatus,
       customerName,
@@ -21,72 +21,39 @@ export const addBill = async (req, res) => {
 
     let customerId = req.body.customerId || req.params.customerId;
 
-    // Fix: Handle invalid ObjectId (including "undefined", "null" strings)
     if (customerId && !mongoose.Types.ObjectId.isValid(customerId)) {
       customerId = null;
     }
 
-    if (!items?.length) {
-      return res.status(400).json({ message: "Required fields missing" });
+    if (!items || items.length === 0) {
+      return res.status(400).json({ message: "Items required" });
     }
 
-    // Handle automatic customer creation if no ID is provided
+    /* ---------- CUSTOMER ---------- */
     if (!customerId) {
-      let customer;
-      // Sanitize phone number if it comes as string "undefined"
       const validPhone =
         customerPhone &&
         customerPhone !== "undefined" &&
         customerPhone !== "null"
           ? customerPhone
-          : undefined;
+          : null;
 
-      // Use phone number to find customer if provided, as it's unique
-      if (validPhone) {
-        customer = await User.findOne({ phoneNumber: validPhone });
-      }
+      let customer = validPhone
+        ? await User.findOne({ phoneNumber: validPhone })
+        : null;
 
-      if (customer) {
-        customerId = customer._id;
-      } else {
-        // If no customer found, create a new one.
-        // The User model's pre-save hook will auto-generate a customerCode.
-        try {
-          const newCustomer = await User.create({
-            firstName:
-              customerName &&
-              customerName !== "undefined" &&
-              customerName !== "null"
-                ? customerName
-                : "Customer",
-            phoneNumber: validPhone,
-          });
-          customerId = newCustomer._id;
-        } catch (error) {
-          // This catch block handles errors during User.create
-          if (error.code === 11000 && validPhone) {
-            // This is a race condition, we can now safely find the user.
-            const existingCustomer = await User.findOne({
-              phoneNumber: validPhone,
-            });
-            if (existingCustomer) customerId = existingCustomer._id;
-            else
-              return res
-                .status(500)
-                .json({ message: "Error resolving customer information." });
-          } else {
-            return res
-              .status(400)
-              .json({ message: `Failed to create customer: ${error.message}` });
-          }
-        }
+      if (!customer) {
+        customer = await User.create({
+          firstName: customerName || "Customer",
+          phoneNumber: validPhone,
+        });
       }
+      customerId = customer._id;
     }
 
     const round2 = (n) => Math.round(n * 100) / 100;
 
     let finalItems = [];
-
     let totalQty = 0;
     let grossAmount = 0;
     let totalDiscount = 0;
@@ -94,76 +61,49 @@ export const addBill = async (req, res) => {
     let totalCGST = 0;
     let totalSGST = 0;
 
+    /* ---------- ITEMS LOOP ---------- */
     for (const item of items) {
-      let product = null;
-
-      if (item.productId) {
-        const pId = String(item.productId).trim();
-        if (mongoose.Types.ObjectId.isValid(pId)) {
-          product = await Product.findById(pId);
-        }
-        if (!product) {
-          product = await Product.findOne({ itemCode: pId });
-        }
-      }
-
-      if (!product && item.itemCode) {
-        product = await Product.findOne({ itemCode: item.itemCode });
-      }
-
+      const product = await Product.findById(item.productId);
       if (!product) {
-        return res.status(404).json({
-          message: `Product not found for ${item.productId || item.itemCode}`,
-        });
+        return res.status(404).json({ message: "Product not found" });
       }
 
       const qty = Number(item.qty || 0);
       const rate = Number(item.rate || product.mrp);
-
       const discountPercent = Number(
         item.discountPercent ?? product.discount ?? 0
       );
-
-      const discountAmount = round2((rate * qty * discountPercent) / 100);
-
-      const gross = round2(rate * qty);
-      const taxable = round2(gross - discountAmount);
-
       const gstPercent = Number(product.gst || 0);
 
-      const cgst = round2((taxable * gstPercent) / 200);
-      const sgst = round2((taxable * gstPercent) / 200);
+      const gross = round2(rate * qty);
+      const discountAmount = round2((gross * discountPercent) / 100);
+      const taxable = round2(gross - discountAmount);
 
-      const total = round2(taxable + cgst + sgst);
+      const gstAmount = round2((taxable * gstPercent) / 100);
+      const cgst = round2(gstAmount / 2);
+      const sgst = round2(gstAmount / 2);
+
+      const total = round2(taxable + gstAmount);
 
       finalItems.push({
         productId: product._id,
-        sno: item.sno,
-
         itemCode: product.itemCode,
         itemName: product.productName,
-        companyName: product.brandName,
-
         hsnCode: product.hsnCode,
-        packing: product.packSize,
-        batch: item.batch || "",
 
         qty,
-        freeQty: item.freeQty || 0,
-
-        mrp: product.mrp,
         rate,
 
+        grossAmount: gross,
         discountPercent,
         discountAmount,
 
         taxableAmount: taxable,
-        gstPercent: gstPercent,
+        gstPercent,
 
         cgst,
         sgst,
         igst: 0,
-
         total,
       });
 
@@ -175,39 +115,35 @@ export const addBill = async (req, res) => {
       totalSGST = round2(totalSGST + sgst);
     }
 
+    /* ---------- BILL NO ---------- */
     const lastBill = await Bill.findOne().sort({ createdAt: -1 });
-    let nextNum = 1;
-    if (lastBill && lastBill.billNo) {
-      const match = lastBill.billNo.match(/(\d+)$/);
-      if (match) {
-        nextNum = parseInt(match[1], 10) + 1;
-      }
-    }
-    const newBillNo = `BILL${String(nextNum).padStart(4, "0")}`;
+    const nextNum = lastBill
+      ? Number(lastBill.billNo.replace("BILL", "")) + 1
+      : 1;
+
+    const billNo = `BILL${String(nextNum).padStart(4, "0")}`;
 
     const netAmount = round2(
-      taxableAmount + totalCGST + totalSGST + (roundOff || 0)
+      taxableAmount + totalCGST + totalSGST + roundOff
     );
+    const balanceAmount = round2(netAmount - paidAmount);
 
-    const balanceAmount = round2(netAmount - (paidAmount || 0));
+    let paymentStatus =
+      providedStatus === "Draft"
+        ? "Draft"
+        : balanceAmount === 0
+        ? "Paid"
+        : paidAmount > 0
+        ? "Partial"
+        : "Unpaid";
 
-    let paymentStatus = providedStatus === "Draft" ? "Draft" : null;
-
-    if (!paymentStatus) {
-      paymentStatus =
-        balanceAmount === 0 ? "Paid" : paidAmount > 0 ? "Partial" : "Unpaid";
-    }
-
-    // Fix for Timezone: Add 5.5 hours to current UTC time to match IST
-    let finalBillDate = billDate;
-    if (!finalBillDate) {
-      const now = new Date();
-      finalBillDate = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
-    }
+    const finalBillDate = billDate
+      ? billDate
+      : new Date(Date.now() + 5.5 * 60 * 60 * 1000);
 
     const bill = await Bill.create({
       customerId,
-      billNo: newBillNo,
+      billNo,
       billDate: finalBillDate,
       items: finalItems,
 
@@ -225,23 +161,15 @@ export const addBill = async (req, res) => {
       paidAmount,
       balanceAmount,
       paymentStatus,
-
       notes,
     });
 
-    await bill.populate("customerId", "firstName lastName phoneNumber email");
-
-    const customerObject = bill.customerId ? bill.customerId.toObject() : null;
-    if (customerObject) {
-      // Manually add customerId to the response object for frontend clarity
-      customerObject.customerId = customerObject._id;
-    }
+    await bill.populate("customerId", "firstName lastName phoneNumber");
 
     res.status(201).json({
       success: true,
-      message: `Bill generated successfully: ${bill.billNo}`,
+      message: "Bill generated successfully",
       bill,
-      customer: customerObject,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -249,6 +177,7 @@ export const addBill = async (req, res) => {
 };
 
 /* ================= GET DRAFT BILLS ================= */
+
 export const getDraftBills = async (req, res) => {
   try {
     const bills = await Bill.find({
@@ -264,11 +193,11 @@ export const getDraftBills = async (req, res) => {
 };
 
 /* ================= GET ALL BILLS ================= */
+
 export const getBills = async (req, res) => {
   try {
     const bills = await Bill.find()
       .populate("customerId", "firstName lastName phoneNumber gstNumber")
-      .populate("agentId", "name")
       .sort({ createdAt: -1 });
 
     res.json(bills);
@@ -278,11 +207,11 @@ export const getBills = async (req, res) => {
 };
 
 /* ================= GET SINGLE BILL ================= */
+
 export const getBillById = async (req, res) => {
   try {
     const bill = await Bill.findById(req.params.id)
       .populate("customerId")
-      .populate("agentId")
       .populate("items.productId");
 
     if (!bill) {
@@ -294,6 +223,8 @@ export const getBillById = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+
 
 /* ================= DATE RANGE ================= */
 export const getBillsByDateRange = async (req, res) => {
@@ -405,7 +336,7 @@ export const updateBill = async (req, res) => {
       const gross = round2(rate * qty);
       const taxable = round2(gross - discountAmount);
 
-      const gstPercent = String(product.hsnCode) === "3304" ? 5 : 3;
+      const gstPercent = String(item.hsnCode) === "3304" ? 5 : 3;
 
       const cgst = round2((taxable * gstPercent) / 200);
       const sgst = round2((taxable * gstPercent) / 200);

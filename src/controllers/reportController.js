@@ -10,20 +10,8 @@ export const allReports = async (req, res) => {
 
     // Correct calculation: compute totalAmount for each bill if needed
     const billsWithTotal = bills.map((bill) => {
-      let totalAmount = 0;
-      if (bill.items && bill.items.length) {
-        totalAmount = bill.items.reduce((sum, item) => {
-          const qty = item.quantity || 0;
-          const price = item.price || 0;
-          const discount = item.discount || 0;
-          return sum + qty * price - discount;
-        }, 0);
-
-        // Apply roundOff if exists
-        if (bill.roundOff) {
-          totalAmount += bill.roundOff;
-        }
-      }
+      // Use the stored netAmount directly as it contains the final bill value
+      const totalAmount = bill.netAmount || 0;
       return { ...bill.toObject(), totalAmount };
     });
 
@@ -80,19 +68,8 @@ export const getReportsByDateRange = async (req, res) => {
 
     // Correct calculation
     const billsWithTotal = bills.map((bill) => {
-      let totalAmount = 0;
-      if (bill.items && bill.items.length) {
-        totalAmount = bill.items.reduce((sum, item) => {
-          const qty = item.quantity || 0;
-          const price = item.price || 0;
-          const discount = item.discount || 0;
-          return sum + qty * price - discount;
-        }, 0);
-
-        if (bill.roundOff) {
-          totalAmount += bill.roundOff;
-        }
-      }
+      // Use the stored netAmount directly as it contains the final bill value
+      const totalAmount = bill.netAmount || 0;
       return { ...bill.toObject(), totalAmount };
     });
 
