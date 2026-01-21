@@ -31,13 +31,7 @@ export const addLedgerEntry = async (req, res) => {
     } = req.body;
 
     // 1. Normalize partyType
-    partyType = partyType || ledgerType;
-    if (!partyType) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Party type is required." });
-    }
-    partyType = partyType.toLowerCase();
+    partyType = (partyType || ledgerType || "").toLowerCase();
 
     // 2. Lookup Party Details if missing (Auto-fill name/mobile)
     if (!partyName || !mobileNumber) {
@@ -109,12 +103,6 @@ export const addLedgerEntry = async (req, res) => {
       }
     }
 
-    if (!partyType || !partyCode || !partyName || !type || !referenceNo) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Missing required fields." });
-    }
-
     // Fetch newest balance for this party
     const lastEntry = await Ledger.findOne({ partyCode }).sort({
       date: -1,
@@ -150,9 +138,25 @@ export const addLedgerEntry = async (req, res) => {
 
     await entry.save();
 
+    // Enrich the response with the party's database ID for frontend use.
+    const responseEntry = entry.toObject();
+    if (responseEntry.partyType === "customer") {
+      const customer = await User.findOne({ customerCode: responseEntry.partyCode });
+      if (customer) {
+        responseEntry.customerId = customer._id;
+        responseEntry.customerName = `${customer.firstName} ${customer.lastName}`.trim();
+        responseEntry.mobileNumber = customer.phoneNumber;
+      }
+    } else if (responseEntry.partyType === "supplier") {
+      const supplier = await Supplier.findOne({ supplierId: responseEntry.partyCode });
+      if (supplier) {
+        responseEntry.supplierId = supplier._id;
+      }
+    }
+
     return res
       .status(201)
-      .json({ success: true, message: "Entry added", entry });
+      .json({ success: true, message: "Entry added", entry: responseEntry });
   } catch (err) {
     console.error("addLedgerEntry:", err);
     return res.status(500).json({ success: false, message: err.message });

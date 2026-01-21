@@ -53,6 +53,50 @@ export const addBill = async (req, res) => {
 
     const round2 = (n) => Math.round(n * 100) / 100;
 
+    // 🔥 CHECK FOR EXISTING DRAFT BILL (Merge Logic)
+    let existingBill = null;
+    if (customerId) {
+      existingBill = await Bill.findOne({
+        customerId,
+        paymentStatus: { $in: ["Draft", "Unpaid"] },
+      }).sort({ createdAt: -1 });
+    }
+
+    let itemsToProcess = [];
+
+    if (existingBill) {
+      // Merge existing items with new items
+      const itemMap = new Map();
+
+      // Add existing items to map
+      existingBill.items.forEach((item) => {
+        itemMap.set(item.productId.toString(), {
+          productId: item.productId.toString(),
+          qty: item.qty,
+          rate: item.rate,
+          discountPercent: item.discountPercent,
+          freeQty: item.freeQty,
+        });
+      });
+
+      // Merge new items
+      items.forEach((newItem) => {
+        const pid = newItem.productId;
+        if (itemMap.has(pid)) {
+          const existing = itemMap.get(pid);
+          existing.qty += Number(newItem.qty || 0);
+          // Keep existing rate unless new one is provided
+          if (newItem.rate) existing.rate = Number(newItem.rate);
+        } else {
+          itemMap.set(pid, newItem);
+        }
+      });
+
+      itemsToProcess = Array.from(itemMap.values());
+    } else {
+      itemsToProcess = items;
+    }
+
     let finalItems = [];
     let totalQty = 0;
     let grossAmount = 0;
@@ -62,7 +106,7 @@ export const addBill = async (req, res) => {
     let totalSGST = 0;
 
     /* ---------- ITEMS LOOP ---------- */
-    for (const item of items) {
+    for (const item of itemsToProcess) {
       const product = await Product.findById(item.productId);
       if (!product) {
         return res.status(404).json({ message: "Product not found" });
@@ -86,26 +130,39 @@ export const addBill = async (req, res) => {
       const total = round2(taxable + gstAmount);
 
       finalItems.push({
-        productId: product._id,
-        itemCode: product.itemCode,
-        itemName: product.productName,
-        hsnCode: product.hsnCode,
+  productId: product._id,
 
-        qty,
-        rate,
+  sno: item.sno || 1,
 
-        grossAmount: gross,
-        discountPercent,
-        discountAmount,
+  itemCode: product.itemCode,
+  itemName: product.productName,
+  companyName: product.brandName || "",
+  hsnCode: product.hsnCode,
 
-        taxableAmount: taxable,
-        gstPercent,
+  packing: product.packSize || "N/A",
+  batch: product.batch || "N/A",
 
-        cgst,
-        sgst,
-        igst: 0,
-        total,
-      });
+  qty,
+  freeQty: Number(item.freeQty || 0),
+
+  mrp: product.mrp,
+  rate,
+
+  grossAmount: gross,
+
+  discountPercent,
+  discountAmount,
+
+  taxableAmount: taxable,
+  gstPercent,
+
+  cgst,
+  sgst,
+  igst: 0,
+
+  total,
+});
+
 
       totalQty += qty;
       grossAmount = round2(grossAmount + gross);
@@ -116,12 +173,16 @@ export const addBill = async (req, res) => {
     }
 
     /* ---------- BILL NO ---------- */
-    const lastBill = await Bill.findOne().sort({ createdAt: -1 });
-    const nextNum = lastBill
-      ? Number(lastBill.billNo.replace("BILL", "")) + 1
-      : 1;
+    // Only generate new Bill No if we are NOT updating an existing bill
+    let billNo = existingBill ? existingBill.billNo : null;
 
-    const billNo = `BILL${String(nextNum).padStart(4, "0")}`;
+    if (!billNo) {
+      const lastBill = await Bill.findOne().sort({ createdAt: -1 });
+      const nextNum = lastBill
+        ? Number(lastBill.billNo.replace("BILL", "")) + 1
+        : 1;
+      billNo = `BILL${String(nextNum).padStart(4, "0")}`;
+    }
 
     const netAmount = round2(
       taxableAmount + totalCGST + totalSGST + roundOff
@@ -135,40 +196,60 @@ export const addBill = async (req, res) => {
         ? "Paid"
         : paidAmount > 0
         ? "Partial"
+        : existingBill // If updating a draft and not fully paid, keep it Draft
+        ? existingBill.paymentStatus
         : "Unpaid";
 
     const finalBillDate = billDate
       ? billDate
       : new Date(Date.now() + 5.5 * 60 * 60 * 1000);
 
-    const bill = await Bill.create({
-      customerId,
-      billNo,
-      billDate: finalBillDate,
-      items: finalItems,
-
-      totalQty,
-      grossAmount,
-      totalDiscount,
-      taxableAmount,
-      totalCGST,
-      totalSGST,
-      totalIGST: 0,
-      roundOff,
-      netAmount,
-
-      paymentMode,
-      paidAmount,
-      balanceAmount,
-      paymentStatus,
-      notes,
-    });
+    let bill;
+    if (existingBill) {
+      // UPDATE EXISTING BILL
+      existingBill.items = finalItems;
+      existingBill.totalQty = totalQty;
+      existingBill.grossAmount = grossAmount;
+      existingBill.totalDiscount = totalDiscount;
+      existingBill.taxableAmount = taxableAmount;
+      existingBill.totalCGST = totalCGST;
+      existingBill.totalSGST = totalSGST;
+      existingBill.netAmount = netAmount;
+      existingBill.balanceAmount = balanceAmount;
+      existingBill.paymentStatus = paymentStatus;
+      if (paidAmount) existingBill.paidAmount = paidAmount;
+      if (notes) existingBill.notes = notes;
+      
+      bill = await existingBill.save();
+    } else {
+      // CREATE NEW BILL
+      bill = await Bill.create({
+        customerId,
+        billNo,
+        billDate: finalBillDate,
+        items: finalItems,
+        totalQty,
+        grossAmount,
+        totalDiscount,
+        taxableAmount,
+        totalCGST,
+        totalSGST,
+        totalIGST: 0,
+        roundOff,
+        netAmount,
+        paymentMode,
+        paidAmount,
+        balanceAmount,
+        paymentStatus,
+        notes,
+      });
+    }
 
     await bill.populate("customerId", "firstName lastName phoneNumber");
 
     res.status(201).json({
       success: true,
-      message: "Bill generated successfully",
+      message: existingBill ? "Bill updated successfully" : "Bill generated successfully",
       bill,
     });
   } catch (error) {

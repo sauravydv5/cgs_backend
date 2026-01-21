@@ -44,10 +44,14 @@ const saleReturnSchema = new mongoose.Schema(
           type: Number,
           required: true,
         },
-        amount: {
-          type: Number,
-          required: true,
-        },
+        baseAmount: Number,
+        discountPercent: Number,
+        discountAmount: Number,
+        taxableAmount: Number,
+        gstPercent: Number,
+        cgst: Number,
+        sgst: Number,
+        finalAmount: { type: Number, required: true },
       },
     ],
     totalAmount: {

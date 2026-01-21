@@ -1,6 +1,7 @@
 import Bill from "../models/bill.js";
 import Product from "../models/product.js";
 import StockAlert from "../models/stock.js";
+import Order from "../models/order.js";
 import User from "../models/user.js";
 import { USER_ROLES } from "../constants/auth.js";
 
@@ -48,50 +49,52 @@ export const getDashboardData = async (req, res) => {
     });
 
     /* =========================
-       SALES CHART (MONTH + YEAR)
-    ========================== */
-    const salesChart = await Bill.aggregate([
-      {
-        $group: {
-          _id: {
-            year: { $year: "$createdAt" },
-            month: { $month: "$createdAt" },
-          },
-          total: { $sum: "$netAmount" },
-        },
+   SALES CHART (MONTH + YEAR)
+========================== */
+const salesChart = await Bill.aggregate([
+  {
+    $group: {
+      _id: {
+        year: { $year: "$billDate" },   // ✅ FIX
+        month: { $month: "$billDate" }, // ✅ FIX
       },
-      {
-        $project: {
-          year: "$_id.year",
-          month: "$_id.month",
-          total: 1,
-          _id: 0,
-        },
-      },
-      { $sort: { year: 1, month: 1 } },
-    ]);
+      total: { $sum: "$netAmount" },
+    },
+  },
+  {
+    $project: {
+      year: "$_id.year",
+      month: "$_id.month",
+      total: { $round: ["$total", 0] },
+      _id: 0,
+    },
+  },
+  { $sort: { year: 1, month: 1 } },
+]);
+
 
     /* =========================
        PRODUCT PERFORMANCE
     ========================== */
     const productPerformance = await Bill.aggregate([
       { $unwind: "$items" },
-      {
-        $group: {
-          _id: "$items.itemName",
-          sold: { $sum: "$items.qty" },
-        },
-      },
-      { $sort: { sold: -1 } },
-      { $limit: 6 },
-      {
-        $project: {
-          productName: "$_id",
-          sold: 1,
-          _id: 0,
-        },
-      },
-    ]);
+  {
+    $group: {
+      _id: "$items.itemName",
+      sold: { $sum: "$items.qty" },
+    },
+  },
+  { $sort: { sold: -1 } },
+  { $limit: 6 },
+  {
+    $project: {
+      productName: "$_id",
+      sold: 1,
+      _id: 0,
+    },
+  },
+]);
+
 
     /* =========================
        RESPONSE
@@ -121,6 +124,86 @@ export const getDashboardData = async (req, res) => {
   }
 };
 
+/* =========================
+   GET SALES CHART (Dynamic Grouping)
+========================== */
+export const getSalesChart = async (req, res) => {
+  try {
+    const { startDate, endDate, groupBy = "day" } = req.query;
+
+    const start = new Date(`${startDate}T00:00:00.000Z`);
+    const end = new Date(`${endDate}T23:59:59.999Z`);
+
+    let groupId;
+    let projectStage;
+    let sortStage;
+
+    if (groupBy === "month") {
+      groupId = {
+        year: { $year: "$billDate" },
+        month: { $month: "$billDate" },
+      };
+
+      projectStage = {
+        _id: 0,
+        month: {
+          $dateFromParts: {
+            year: "$_id.year",
+            month: "$_id.month",
+            day: 1,
+          },
+        },
+        total: { $round: ["$total", 0] },
+        orders: 1,
+      };
+
+      sortStage = { month: 1 };
+    } else {
+      // ✅ DAY WISE
+      groupId = {
+        year: { $year: "$billDate" },
+        month: { $month: "$billDate" },
+        day: { $dayOfMonth: "$billDate" },
+      };
+
+      projectStage = {
+        _id: 0,
+        date: {
+          $dateFromParts: {
+            year: "$_id.year",
+            month: "$_id.month",
+            day: "$_id.day",
+          },
+        },
+        total: { $round: ["$total", 0] },
+        orders: 1,
+      };
+
+      sortStage = { date: 1 };
+    }
+
+    const data = await Bill.aggregate([
+      { $match: { billDate: { $gte: start, $lte: end } } },
+      {
+        $group: {
+          _id: groupId,
+          total: { $sum: "$netAmount" },
+          orders: { $sum: 1 },
+        },
+      },
+      { $project: projectStage },
+      { $sort: sortStage },
+    ]);
+
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+
+
 /* ======================================================
    DASHBOARD WITH DATE RANGE FILTER
 ====================================================== */
@@ -141,8 +224,8 @@ export const getDashboardDataByDateRange = async (req, res) => {
     const end = new Date(`${endDate}T23:59:59.999Z`);
 
     const dateFilter = {
-      createdAt: { $gte: start, $lte: end },
-    };
+  billDate: { $gte: start, $lte: end },
+};
 
     /* =========================
        TOTAL SALES
@@ -201,7 +284,7 @@ export const getDashboardDataByDateRange = async (req, res) => {
         $project: {
           year: "$_id.year",
           month: "$_id.month",
-          total: 1,
+          total: { $round: ["$total", 0] },
           _id: 0,
         },
       },
@@ -211,25 +294,29 @@ export const getDashboardDataByDateRange = async (req, res) => {
     /* =========================
        PRODUCT PERFORMANCE
     ========================== */
-    const productPerformance = await Bill.aggregate([
-      { $match: dateFilter },
-      { $unwind: "$items" },
-      {
-        $group: {
-          _id: "$items.itemName",
-          sold: { $sum: "$items.qty" },
-        },
-      },
-      { $sort: { sold: -1 } },
-      { $limit: 6 },
-      {
-        $project: {
-          productName: "$_id",
-          sold: 1,
-          _id: 0,
-        },
-      },
-    ]);
+    /* =========================
+   PRODUCT PERFORMANCE (DATE RANGE)
+========================== */
+const productPerformance = await Bill.aggregate([
+  { $match: dateFilter }, // 👈 yahan start/end already defined hain
+  { $unwind: "$items" },
+  {
+    $group: {
+      _id: "$items.itemName",
+      sold: { $sum: "$items.qty" },
+    },
+  },
+  { $sort: { sold: -1 } },
+  { $limit: 6 },
+  {
+    $project: {
+      productName: "$_id",
+      sold: 1,
+      _id: 0,
+    },
+  },
+]);
+
 
     res.status(200).json({
       success: true,

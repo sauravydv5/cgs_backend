@@ -4,7 +4,6 @@ import mongoose from "mongoose";
 const ledgerSchema = new mongoose.Schema({
   date: {
     type: Date,
-    required: true,
     default: Date.now,
   },
 
@@ -14,19 +13,16 @@ const ledgerSchema = new mongoose.Schema({
 
   partyType: {
     type: String, // "customer" | "supplier"
-    required: true,
     enum: ["customer", "supplier"],
   },
 
   partyCode: {
     type: String,
-    required: true,
     trim: true,
   },
 
   partyName: {
     type: String,
-    required: true,
     trim: true,
   },
 
@@ -38,13 +34,11 @@ const ledgerSchema = new mongoose.Schema({
 
   type: {
     type: String, // "Sale" | "Payment" | "Purchase" | "Receipt"
-    required: true,
     trim: true,
   },
 
   referenceNo: {
     type: String,
-    required: true,
     trim: true,
   },
 

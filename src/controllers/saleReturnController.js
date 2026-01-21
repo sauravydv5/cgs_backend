@@ -54,6 +54,20 @@ if (existingReturn) {
     }
     const returnId = `RET-${String(nextNum).padStart(3, "0")}`;
 
+    // 🔥 MAP BILL ITEMS (for discount & GST)
+    const billItemMap = new Map();
+    if (bill.items) {
+      bill.items.forEach((it) => {
+        if (it.productId) {
+          billItemMap.set(it.productId.toString(), {
+            discountPercent: it.discountPercent || 0,
+            gstPercent: it.gstPercent,
+            hsnCode: it.hsnCode,
+          });
+        }
+      });
+    }
+
     let totalAmount = 0;
     const processedItems = [];
 
@@ -76,9 +90,23 @@ if (existingReturn) {
       // Support both 'qty' and 'quantity'
       // Support both 'qty' and 'quantity' keys from the request body for flexibility.
       const qty = Number(item.qty || item.quantity || 0);
-      const rate = Number(item.rate);
-      const amount = qty * rate;
-      totalAmount += amount;
+      const rate = Number(item.rate || 0);
+
+      // 🔥 SAME LOGIC AS BILL GENERATOR
+      const billItem = billItemMap.get(productId.toString()) || {};
+      const discountPercent = billItem.discountPercent || 0;
+      const gstRate =
+        billItem.gstPercent ??
+        (billItem.hsnCode === "3304" ? 5 : 3);
+
+      const baseAmount = qty * rate;
+      const discountAmount = (baseAmount * discountPercent) / 100;
+      const taxableAmount = baseAmount - discountAmount;
+      const cgst = (taxableAmount * gstRate) / 200;
+      const sgst = (taxableAmount * gstRate) / 200;
+      const finalAmount = taxableAmount + cgst + sgst;
+
+      totalAmount += finalAmount;
 
       // 🔥 Increase Stock (Return In)
       // 🔥 Increase the stock for the returned product.
@@ -89,9 +117,22 @@ if (existingReturn) {
         productId: product._id, // Standardize to productId for this model
         qty,
         rate,
-        amount,
+        
+        baseAmount,
+        discountPercent,
+        discountAmount,
+
+        taxableAmount,
+        gstPercent: gstRate,
+        cgst,
+        sgst,
+
+        finalAmount, // ✅ RETURN VALUE (same as invoice)
       });
     }
+
+    // Round the final total amount to 2 decimal places to avoid floating point issues.
+    const roundedTotalAmount = Math.round(totalAmount * 100) / 100;
 
     // 4. Create Sale Return Record
     // Step 4: Create the main Sale Return document with all the processed information.
@@ -110,47 +151,22 @@ if (existingReturn) {
       customerName: finalCustomerName,
       date: date || new Date(),
       items: processedItems,
-      totalAmount,
+      totalAmount: roundedTotalAmount, // ✅ EXACT INVOICE RETURN VALUE
       reason: reason || "",
       status: status || "PENDING",
     });
 
-    // // 5. Create Ledger Entry (Credit Customer)
-    // // Step 5: Create a corresponding ledger entry to credit the customer's account.
-    // // This adjusts their balance to reflect the refund or credit note.
-    // if (customer) {
-    //   // Fetch last balance to calculate new balance
-    //   const lastEntry = await Ledger.findOne({ partyCode: customer.customerCode }).sort({ date: -1, createdAt: -1 });
-    //   const lastBalance = lastEntry ? lastEntry.balance : 0;
-      
-    //   // Customer Credit = Balance Decreases (We owe them or debt reduces)
-    //   const newBalance = lastBalance - totalAmount;
-
-    //   await Ledger.create({
-    //     date: date || new Date(),
-    //     partyType: "customer",
-    //     partyCode: customer.customerCode || "UNKNOWN",
-    //     partyName: `${customer.firstName} ${customer.lastName}`.trim(),
-    //     mobileNumber: customer.phoneNumber,
-    //     type: "Sale Return",
-    //     referenceNo: returnId,
-    //     credit: totalAmount,
-    //     debit: 0,
-    //     balance: newBalance,
-    //     paymentMethod: "Return",
-    //   });
-    // }
-
-    // 🔥 Populate response data
-    // Step 6: Populate the newly created return document with details from related models.
-    // This ensures the response sent back to the client contains full information (e.g., product names).
     const populatedReturn = await SaleReturn.findById(saleReturn._id)
       .populate("billId", "billNo")
       .populate("customerId", "firstName lastName phoneNumber")
       .populate("items.productId", "productName itemCode");
 
-    res.status(201).json({ success: true, message: "Sale return added successfully", data: populatedReturn });
-
+    res.status(201).json({
+      success: true,
+      message: "Sale return added successfully",
+      refundAmount: roundedTotalAmount, // 👈 FRONTEND DIRECT USE
+      data: populatedReturn,
+    });
   } catch (error) {
     console.error("Add Sale Return Error:", error);
     res.status(500).json({ success: false, message: error.message });
