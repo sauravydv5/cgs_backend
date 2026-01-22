@@ -33,8 +33,8 @@ export const addLedgerEntry = async (req, res) => {
     // 1. Normalize partyType
     partyType = (partyType || ledgerType || "").toLowerCase();
 
-    // 2. Lookup Party Details if missing (Auto-fill name/mobile)
-    if (!partyName || !mobileNumber) {
+    // 2. Lookup Party Details if missing (Auto-fill name/mobile/partyCode)
+    if (!partyName || !mobileNumber || !partyCode) {
       if (partyType === "customer") {
         let user;
         if (mongoose.Types.ObjectId.isValid(partyId)) {
@@ -61,8 +61,8 @@ export const addLedgerEntry = async (req, res) => {
         }
 
         if (user) {
-          partyName = `${user.firstName} ${user.lastName}`.trim() || user.customerCode || user.phoneNumber;
-          mobileNumber = user.phoneNumber;
+          partyName = partyName || `${user.firstName} ${user.lastName}`.trim() || user.customerCode;
+          mobileNumber = mobileNumber || user.phoneNumber;
 
           // Ensure customerCode exists (generate if missing)
           if (!user.customerCode) {
@@ -70,10 +70,14 @@ export const addLedgerEntry = async (req, res) => {
           }
 
           partyCode = user.customerCode; // CUST-001
-        } else {
+        } else if (!partyName && !mobileNumber) {
+          // Only return error if we strictly needed a lookup but failed
           return res
             .status(404)
             .json({ success: false, message: `Customer '${partyId}' not found.` });
+        } else if (!partyCode) {
+          // Fallback for adhoc customer
+          partyCode = mobileNumber || partyName;
         }
       } else if (partyType === "supplier") {
         let supplier;
@@ -92,13 +96,15 @@ export const addLedgerEntry = async (req, res) => {
         }
 
         if (supplier) {
-          partyName = supplier.name;
-          mobileNumber = supplier.mobileNumber;
+          partyName = partyName || supplier.name;
+          mobileNumber = mobileNumber || supplier.mobileNumber;
           partyCode = supplier.supplierId;
-        } else {
+        } else if (!partyName && !mobileNumber) {
           return res
             .status(404)
             .json({ success: false, message: "Supplier not found." });
+        } else if (!partyCode) {
+          partyCode = mobileNumber || partyName;
         }
       }
     }

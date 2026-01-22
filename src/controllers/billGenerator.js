@@ -167,6 +167,8 @@ const calculatedReturnItems = returnItems.map((item) => {
   // Final Net Amount
   const netPayable = totalSalesValue - totalReturnValue;
 
+  const billNumbers = [...new Set(items.map((item) => item.billNo))].join(", ");
+
   const now = new Date();
   const currentDate = now.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" });
   const currentTime = now.toLocaleTimeString("en-IN", {
@@ -185,7 +187,6 @@ const calculatedReturnItems = returnItems.map((item) => {
         <thead>
           <tr>
             <th>SR</th>
-            <th>BILL NO</th>
             <th>ITEM NAME</th>
             <th>HSN CODE</th>
             <th>QTY</th>
@@ -201,7 +202,6 @@ const calculatedReturnItems = returnItems.map((item) => {
               (item, i) => `
           <tr>
             <td>${i + 1}</td>
-            <td>${item.billNo || "-"}</td>
             <td>${item.itemName}</td>
             <td>${item.hsnCode || "-"}</td>
             <td class="center">${item.qty}</td>
@@ -273,6 +273,7 @@ const calculatedReturnItems = returnItems.map((item) => {
 
   <div style="text-align:right;">
     <strong>Statement</strong><br/>
+    <strong>Bill No:</strong> ${billNumbers}<br/>
     <strong>Date:</strong> ${currentDate}<br/>
     <strong>Issued Time:</strong> ${currentTime}
   </div>
@@ -283,7 +284,6 @@ const calculatedReturnItems = returnItems.map((item) => {
 <thead>
 <tr>
   <th>SL</th>
-  <th>BILL NO</th>
   <th>ITEM NAME</th>
   <th>HSN CODE</th>
   <th>QTY</th>
@@ -299,7 +299,6 @@ ${calculatedItems
     (item, i) => `
 <tr>
   <td>${i + 1}</td>
-  <td>${item.billNo}</td>
   <td>${item.itemName}</td>
   <td>${item.hsnCode || "-"}</td>
   <td class="center">${item.qty}</td>
