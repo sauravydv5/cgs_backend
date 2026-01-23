@@ -11,21 +11,21 @@ import {
   updateStock
 } from "../controllers/productController.js";
 
-import protect, { adminOnly, checkPermission } from "../middleware/authMiddleware.js";
+import protect, { adminOnly } from "../middleware/authMiddleware.js";
 import { productValidationRules } from "../validators/product.validation.js";
 import requestValidator from "../middleware/requestValidator.js";
 
 const router = express.Router();
 
 // Admin-only routes
-router.post("/", protect, checkPermission("product"), productValidationRules, requestValidator, addProduct);
+router.post("/", protect, adminOnly,productValidationRules,requestValidator, addProduct);
 
-router.get("/low-stock", protect, checkPermission("product"), getLowStockProducts);
-router.put("/low-stock/settings", protect, checkPermission("product"), updateStockAlertSettings);
-router.patch("/:id/stock", protect, checkPermission("product"), updateStock);
+router.get("/low-stock", protect, adminOnly, getLowStockProducts);
+router.put("/low-stock/settings", protect, adminOnly, updateStockAlertSettings);
+router.patch("/:id/stock", protect, adminOnly, updateStock);
 
-router.put("/:id", protect, checkPermission("product"), productValidationRules, requestValidator, updateProduct);
-router.delete("/:id", protect, checkPermission("product"), deleteProduct);
+router.put("/:id", protect, adminOnly,productValidationRules,requestValidator, updateProduct);
+router.delete("/:id", protect, adminOnly, deleteProduct);
 
 // Public routes
 router.get("/", getAllProducts);
