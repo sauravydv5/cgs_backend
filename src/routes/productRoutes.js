@@ -8,11 +8,12 @@ import {
   searchProducts,
   getLowStockProducts,
   updateStockAlertSettings,
-  updateStock
+  updateStock,
+  setStockThresholds
 } from "../controllers/productController.js";
 
 import protect, { adminOnly } from "../middleware/authMiddleware.js";
-import { productValidationRules } from "../validators/product.validation.js";
+import { productValidationRules, stockThresholdValidationRules } from "../validators/product.validation.js";
 import requestValidator from "../middleware/requestValidator.js";
 
 const router = express.Router();
@@ -22,6 +23,7 @@ router.post("/", protect, adminOnly,productValidationRules,requestValidator, add
 
 router.get("/low-stock", protect, adminOnly, getLowStockProducts);
 router.put("/low-stock/settings", protect, adminOnly, updateStockAlertSettings);
+router.put("/:id/thresholds", protect, adminOnly, stockThresholdValidationRules, requestValidator, setStockThresholds);
 router.patch("/:id/stock", protect, adminOnly, updateStock);
 
 router.put("/:id", protect, adminOnly,productValidationRules,requestValidator, updateProduct);

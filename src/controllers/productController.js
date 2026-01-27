@@ -1,16 +1,54 @@
 import Product from "../models/product.js";
+import Subcategory from "../models/subcategory.js";
+import Category from "../models/category.js";
 import StockAlert from "../models/stock.js";
 import responseHandler from "../utils/responseHandler.js";
 import mongoose from "mongoose";
 
+// Helper to safely extract ID from object or string
+const resolveId = (data) => {
+  if (!data) return null;
+  if (typeof data === "object") {
+    return data._id || data.id || data.value || null;
+  }
+  // Handle "null" or "undefined" strings often sent by FormData
+  if (typeof data === "string") {
+    const trimmed = data.trim();
+    if (trimmed === "null" || trimmed === "undefined" || trimmed === "") return null;
+    return trimmed;
+  }
+  return data;
+};
+
 // Add new product (admin only)
 export const addProduct = async (req, res) => {
   try {
-    const { category, ...rest } = req.body;
-    const product = new Product({ ...rest, category });
+    let { category, subcategory, ...rest } = req.body;
+
+    // Resolve IDs safely
+    category = resolveId(category);
+    subcategory = resolveId(subcategory);
+
+    // Validate Subcategory if provided
+    if (subcategory && mongoose.Types.ObjectId.isValid(subcategory)) {
+      const subCatExists = await Subcategory.findById(subcategory);
+      if (!subCatExists) return res.status(400).json(responseHandler.error("Invalid Subcategory ID"));
+    }
+
+    const product = new Product({ ...rest, category, subcategory });
     const savedProduct = await product.save();
-    // Populate category to return the full object instead of just the ID
-    const populatedProduct = await Product.findById(savedProduct._id).populate("category");
+    
+    // Populate category and subcategory
+    const populatedProduct = await Product.findById(savedProduct._id)
+      .populate("category", "name")
+      .populate({
+        path: "subcategory",
+        select: "name category",
+        populate: {
+          path: "category",
+          select: "name"
+        }
+      });
 
     return res
       .status(201)
@@ -23,7 +61,17 @@ export const addProduct = async (req, res) => {
 // Get product by ID (public)
 export const getProductById = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id).populate("category");
+    const product = await Product.findById(req.params.id)
+      .populate("category", "name")
+      .populate({
+        path: "subcategory",
+        select: "name category",
+        populate: {
+          path: "category",
+          select: "name"
+        }
+      });
+    
     if (!product)
       return res.status(404).json(responseHandler.error("Product not found"));
     return res.json(responseHandler.success(product, "Product retrieved successfully"));
@@ -32,10 +80,9 @@ export const getProductById = async (req, res) => {
   }
 };
 
-// ⚠️ Get Low Stock Products & Settings
+// Get Low Stock Products & Settings
 export const getLowStockProducts = async (req, res) => {
   try {
-    // Get settings or create default
     let settings = await StockAlert.findOne();
     if (!settings) {
       settings = await StockAlert.create({});
@@ -43,8 +90,19 @@ export const getLowStockProducts = async (req, res) => {
 
     const threshold = settings.threshold;
 
-    const products = await Product.find({ stock: { $lte: threshold } })
-      .select("productName stock brandName itemCode image")
+    const products = await Product.find({
+      $expr: { $lte: ["$stock", { $ifNull: ["$lowStockThreshold", threshold] }] },
+    })
+      .select("productName stock brandName itemCode image lowStockThreshold maxStockThreshold")
+      .populate("category", "name")
+      .populate({
+        path: "subcategory",
+        select: "name category",
+        populate: {
+          path: "category",
+          select: "name"
+        }
+      })
       .sort({ stock: 1 })
       .limit(20);
 
@@ -59,7 +117,7 @@ export const getLowStockProducts = async (req, res) => {
   }
 };
 
-// ⚙️ Update Stock Alert Settings
+// Update Stock Alert Settings
 export const updateStockAlertSettings = async (req, res) => {
   try {
     const { threshold, emailAlert, pushAlert } = req.body;
@@ -83,12 +141,26 @@ export const updateStockAlertSettings = async (req, res) => {
   }
 };
 
-// ⚡ Quick Stock Update
+// Quick Stock Update
 export const updateStock = async (req, res) => {
   try {
     const { id } = req.params;
     const { stock } = req.body;
-    const product = await Product.findByIdAndUpdate(id, { stock: Number(stock) }, { new: true });
+    const product = await Product.findByIdAndUpdate(
+      id, 
+      { stock: Number(stock) }, 
+      { new: true }
+    )
+    .populate("category", "name")
+    .populate({
+      path: "subcategory",
+      select: "name category",
+      populate: {
+        path: "category",
+        select: "name"
+      }
+    });
+    
     if (!product) return res.status(404).json(responseHandler.error("Product not found"));
     return res.json(responseHandler.success(product, "Stock updated successfully"));
   } catch (err) {
@@ -99,12 +171,15 @@ export const updateStock = async (req, res) => {
 // Get all products (public)
 export const getAllProducts = async (req, res) => {
   try {
-    const { page, limit, offset } = req;
-    // Extract query params
+    const page = parseInt(req.query.page) || 1;
+    const limit = req.query.limit ? parseInt(req.query.limit) : 0;
+    const offset = limit > 0 ? (page - 1) * limit : 0;
+    
     const {
       sortBy = "createdAt",
       sortOrder = "desc",
       category,
+      subcategory,
       brandName,
       minPrice,
       maxPrice,
@@ -112,11 +187,14 @@ export const getAllProducts = async (req, res) => {
       search
     } = req.query;
 
-    // Build filter
     const filter = {};
 
     if (category && mongoose.Types.ObjectId.isValid(category)) {
       filter.category = new mongoose.Types.ObjectId(category);
+    }
+
+    if (subcategory && mongoose.Types.ObjectId.isValid(subcategory)) {
+      filter.subcategory = new mongoose.Types.ObjectId(subcategory);
     }
 
     if (brandName) {
@@ -141,31 +219,40 @@ export const getAllProducts = async (req, res) => {
       ];
     }
 
-    // Sorting
-    const sortOptions = { [sortBy]: sortOrder === "asc" ? 1 : -1 };
+    const sortOptions = {
+      [sortBy]: sortOrder === "asc" ? 1 : -1,
+      _id: 1
+    };
 
-    // Query DB with filters, sorting, and pagination
     const [products, total] = await Promise.all([
       Product.find(filter)
-        .populate("category", "name") // only fetch category name
+        .populate("category", "name")
+        .populate({
+          path: "subcategory",
+          select: "name category",
+          populate: {
+            path: "category",
+            select: "name"
+          }
+        })
         .select(
-          "brandName productName mrp discount stock image description category packSize size hsnCode itemCode costPrice gst"
-        ) // ✅ only expose safe fields
+          "brandName productName mrp discount stock image description category subcategory packSize size hsnCode itemCode costPrice gst"
+        )
         .sort(sortOptions)
         .skip(offset)
         .limit(limit),
       Product.countDocuments(filter),
     ]);
 
-    const response = {
-      rows: products,
-      count: total,
-      currentPage: page,
-      totalPages: Math.max(1, Math.ceil(total / limit)),
+    const pagination = {
+      page,
+      limit: limit === 0 ? total : limit,
+      total,
+      totalPages: limit > 0 ? Math.ceil(total / limit) : 1,
     };
 
     return res.json(
-      responseHandler.success(response, "Products fetched successfully")
+      responseHandler.success({ products, pagination }, "Products fetched successfully")
     );
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
@@ -179,17 +266,69 @@ export const updateProduct = async (req, res) => {
     if (!product)
       return res.status(404).json(responseHandler.error("Product not found"));
 
-    // Update product fields from the request body
+    // Explicitly handle category and subcategory updates
+    if (req.body.category !== undefined) {
+      product.category = resolveId(req.body.category);
+    }
+
+    if (req.body.subcategory !== undefined) {
+      product.subcategory = resolveId(req.body.subcategory);
+    }
+
+    if (product.subcategory && mongoose.Types.ObjectId.isValid(product.subcategory)) {
+      const subCatExists = await Subcategory.findById(product.subcategory);
+      if (!subCatExists) return res.status(400).json(responseHandler.error("Invalid Subcategory ID"));
+    }
+
     Object.keys(req.body).forEach((key) => {
-      product[key] = req.body[key] ?? product[key];
+      // Skip category/subcategory as they are handled above
+      if (key !== "category" && key !== "subcategory") {
+        product[key] = req.body[key] ?? product[key];
+      }
     });
 
     const updatedProduct = await product.save();
-    // Re-populate the category field to ensure the full object is returned
-    const populatedProduct = await Product.findById(updatedProduct._id).populate("category");
+    
+    const populatedProduct = await Product.findById(updatedProduct._id)
+      .populate("category", "name")
+      .populate({
+        path: "subcategory",
+        select: "name category",
+        populate: {
+          path: "category",
+          select: "name"
+        }
+      });
 
     return res.json(
       responseHandler.success(populatedProduct, "Product updated successfully")
+    );
+  } catch (err) {
+    return res.status(500).json(responseHandler.error(err.message));
+  }
+};
+
+// Set stock thresholds for a product
+export const setStockThresholds = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { lowStockThreshold, maxStockThreshold } = req.body;
+
+    const product = await Product.findById(id);
+    if (!product)
+      return res.status(404).json(responseHandler.error("Product not found"));
+
+    if (lowStockThreshold !== undefined) {
+      product.lowStockThreshold = Number(lowStockThreshold);
+    }
+    if (maxStockThreshold !== undefined) {
+      product.maxStockThreshold = Number(maxStockThreshold);
+    }
+
+    const updatedProduct = await product.save();
+
+    return res.json(
+      responseHandler.success(updatedProduct, "Stock thresholds updated successfully")
     );
   } catch (err) {
     return res.status(500).json(responseHandler.error(err.message));
@@ -230,8 +369,17 @@ export const searchProducts = async (req, res) => {
         { itemCode: { $regex: searchTerm, $options: "i" } },
       ],
     })
-      .select("productName brandName mrp itemCode") // Select only fields needed for autofetch
-      .limit(10); // Limit results for performance
+      .select("productName brandName mrp itemCode")
+      .populate("category", "name")
+      .populate({
+        path: "subcategory",
+        select: "name category",
+        populate: {
+          path: "category",
+          select: "name"
+        }
+      })
+      .limit(10);
 
     return res.json(
       responseHandler.success(products, "Products fetched successfully")

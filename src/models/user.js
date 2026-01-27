@@ -27,7 +27,7 @@ const userSchema = new mongoose.Schema(
     isNewUser: { type: Boolean, default: true },
     isBlocked: { type: Boolean, default: false },
     lastLogin: { type: Date },
-    rating: { type: Number, default: 0, min: 0, max: 5 },
+    rating: { type: Number, default: 0, min: 0 },
     gender: { type: String, enum: ["Male", "Female", "Other", "N/A"], default: "N/A" },
   },
   { timestamps: true }

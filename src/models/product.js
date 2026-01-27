@@ -34,6 +34,8 @@ const productSchema = new mongoose.Schema(
     packSize: { type: String, default: "", trim: true },
     description: { type: String, default: "", trim: true },
     image: { type: String, default: "" },
+    lowStockThreshold: { type: Number, default: 10, min: 0 },
+    maxStockThreshold: { type: Number, default: 0, min: 0 },
   },
   { timestamps: true, versionKey: false }
 );

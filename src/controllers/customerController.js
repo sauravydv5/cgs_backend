@@ -1,5 +1,9 @@
 import bcrypt from "bcryptjs";
 import User from "../models/user.js";
+import StockAlert from "../models/stock.js";
+import Bill from "../models/bill.js";
+import SaleReturn from "../models/saleReturn.js";
+import CustomerRatingSetting from "../models/customerRatingSetting.js";
 import responseHandler from "../utils/responseHandler.js";
 import { USER_ROLES } from "../constants/auth.js";
 
@@ -41,6 +45,37 @@ export const getAllCustomers = async (req, res) => {
       })
     );
 
+    // Calculate total bill amount for each customer
+    const customerIds = customers.map((c) => c._id);
+    const [billStats, returnStats] = await Promise.all([
+      Bill.aggregate([
+        { $match: { customerId: { $in: customerIds } } },
+        { $group: { _id: "$customerId", totalAmount: { $sum: "$netAmount" } } },
+      ]),
+      SaleReturn.aggregate([
+        { $match: { customerId: { $in: customerIds } } },
+        { $group: { _id: "$customerId", totalAmount: { $sum: "$totalAmount" } } },
+      ]),
+    ]);
+
+    const billMap = {};
+    billStats.forEach((stat) => {
+      billMap[stat._id.toString()] = stat.totalAmount;
+    });
+
+    const returnMap = {};
+    returnStats.forEach((stat) => {
+      returnMap[stat._id.toString()] = stat.totalAmount;
+    });
+
+    const customersWithBillAmount = customers.map((customer) => {
+      const custObj = customer.toObject();
+      const billTotal = billMap[customer._id.toString()] || 0;
+      const returnTotal = returnMap[customer._id.toString()] || 0;
+      custObj.totalBillAmount = Number((billTotal - returnTotal).toFixed(2));
+      return custObj;
+    });
+
     const pagination = {
       page,
       limit,
@@ -51,7 +86,7 @@ export const getAllCustomers = async (req, res) => {
     return res.json(
       responseHandler.success(
         {
-          customers,
+          customers: customersWithBillAmount,
           pagination,
         },
         "Customers fetched successfully"
@@ -107,10 +142,13 @@ export const updateCustomerRating = async (req, res) => {
     const { customerId } = req.params;
     const { rating } = req.body;
 
-    if (rating === undefined || typeof rating !== "number" || rating < 0 || rating > 5) {
+    const settings = await StockAlert.findOne();
+    const maxRatingAllowed = settings?.maxRating || 5;
+
+    if (rating === undefined || typeof rating !== "number" || rating < 0 || rating > maxRatingAllowed) {
       return res
         .status(400)
-        .json(responseHandler.error("Rating must be a number between 0 and 5"));
+        .json(responseHandler.error(`Rating must be a number between 0 and ${maxRatingAllowed}`));
     }
 
     const customer = await User.findOneAndUpdate(
@@ -127,6 +165,80 @@ export const updateCustomerRating = async (req, res) => {
       responseHandler.success(
         { customer },
         "Customer rating updated successfully"
+      )
+    );
+  } catch (error) {
+    return res.status(500).json(responseHandler.error(error.message));
+  }
+};
+
+export const getCustomerRatingSettings = async (req, res) => {
+  try {
+    let settings = await CustomerRatingSetting.findOne();
+
+    // If no settings exist, return default values to prevent frontend issues
+    if (!settings) {
+      settings = {
+        star1Min: 0,
+        star1Max: 0,
+        star2Min: 0,
+        star2Max: 0,
+        star3Min: 0,
+        star3Max: 0,
+        star4Min: 0,
+        star4Max: 0,
+        star5Min: 0,
+        star5Max: 0,
+      };
+    }
+
+    return res.json(
+      responseHandler.success(
+        settings,
+        "Customer rating settings fetched successfully"
+      )
+    );
+  } catch (error) {
+    return res.status(500).json(responseHandler.error(error.message));
+  }
+};
+
+export const saveCustomerRatingSettings = async (req, res) => {
+  try {
+    const {
+      star1Min,
+      star1Max,
+      star2Min,
+      star2Max,
+      star3Min,
+      star3Max,
+      star4Min,
+      star4Max,
+      star5Min,
+      star5Max,
+    } = req.body;
+
+    const settings = await CustomerRatingSetting.findOneAndUpdate(
+      {},
+      {
+        star1Min,
+        star1Max,
+        star2Min,
+        star2Max,
+        star3Min,
+        star3Max,
+        star4Min,
+        star4Max,
+        star5Min,
+        star5Max,
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }
+    );
+
+    return res.json(
+      responseHandler.success(
+        settings,
+        "Customer rating settings saved successfully"
       )
     );
   } catch (error) {
@@ -232,6 +344,37 @@ export const getCustomersByDateRange = async (req, res) => {
       User.countDocuments(query),
     ]);
 
+    // Calculate total bill amount for each customer
+    const customerIds = customers.map((c) => c._id);
+    const [billStats, returnStats] = await Promise.all([
+      Bill.aggregate([
+        { $match: { customerId: { $in: customerIds } } },
+        { $group: { _id: "$customerId", totalAmount: { $sum: "$netAmount" } } },
+      ]),
+      SaleReturn.aggregate([
+        { $match: { customerId: { $in: customerIds } } },
+        { $group: { _id: "$customerId", totalAmount: { $sum: "$totalAmount" } } },
+      ]),
+    ]);
+
+    const billMap = {};
+    billStats.forEach((stat) => {
+      billMap[stat._id.toString()] = stat.totalAmount;
+    });
+
+    const returnMap = {};
+    returnStats.forEach((stat) => {
+      returnMap[stat._id.toString()] = stat.totalAmount;
+    });
+
+    const customersWithBillAmount = customers.map((customer) => {
+      const custObj = customer.toObject();
+      const billTotal = billMap[customer._id.toString()] || 0;
+      const returnTotal = returnMap[customer._id.toString()] || 0;
+      custObj.totalBillAmount = Number((billTotal - returnTotal).toFixed(2));
+      return custObj;
+    });
+
     const pagination = {
       page,
       limit,
@@ -261,7 +404,7 @@ export const getCustomersByDateRange = async (req, res) => {
     return res.json(
       responseHandler.success(
         {
-          customers,
+          customers: customersWithBillAmount,
           pagination,
           filters: {
             startDate: startDate || null,
@@ -291,19 +434,22 @@ export const getCustomersByRating = async (req, res) => {
     const offset = (page - 1) * limit;
     const { rating, minRating, maxRating, sortBy = "rating", sortOrder = "desc" } = req.query;
 
+    const settings = await StockAlert.findOne();
+    const maxRatingAllowed = settings?.maxRating || 5;
+
     const query = { role: USER_ROLES.CUSTOMER };
 
     // Filter by exact rating
     if (rating !== undefined && rating !== null && rating !== "") {
       const ratingNum = parseFloat(rating);
-      if (!isNaN(ratingNum) && ratingNum >= 0 && ratingNum <= 5) {
+      if (!isNaN(ratingNum) && ratingNum >= 0 && ratingNum <= maxRatingAllowed) {
         query.rating = ratingNum;
       }
     } else {
       // Filter by rating range
       if (minRating !== undefined && minRating !== null && minRating !== "") {
         const min = parseFloat(minRating);
-        if (!isNaN(min) && min >= 0 && min <= 5) {
+        if (!isNaN(min) && min >= 0 && min <= maxRatingAllowed) {
           query.rating = query.rating || {};
           query.rating.$gte = min;
         }
@@ -311,7 +457,7 @@ export const getCustomersByRating = async (req, res) => {
 
       if (maxRating !== undefined && maxRating !== null && maxRating !== "") {
         const max = parseFloat(maxRating);
-        if (!isNaN(max) && max >= 0 && max <= 5) {
+        if (!isNaN(max) && max >= 0 && max <= maxRatingAllowed) {
           query.rating = query.rating || {};
           query.rating.$lte = max;
         }
@@ -332,6 +478,37 @@ export const getCustomersByRating = async (req, res) => {
         .select("-password -otp -otpExpiresAt"),
       User.countDocuments(query),
     ]);
+
+    // Calculate total bill amount for each customer
+    const customerIds = customers.map((c) => c._id);
+    const [billStats, returnStats] = await Promise.all([
+      Bill.aggregate([
+        { $match: { customerId: { $in: customerIds } } },
+        { $group: { _id: "$customerId", totalAmount: { $sum: "$netAmount" } } },
+      ]),
+      SaleReturn.aggregate([
+        { $match: { customerId: { $in: customerIds } } },
+        { $group: { _id: "$customerId", totalAmount: { $sum: "$totalAmount" } } },
+      ]),
+    ]);
+
+    const billMap = {};
+    billStats.forEach((stat) => {
+      billMap[stat._id.toString()] = stat.totalAmount;
+    });
+
+    const returnMap = {};
+    returnStats.forEach((stat) => {
+      returnMap[stat._id.toString()] = stat.totalAmount;
+    });
+
+    const customersWithBillAmount = customers.map((customer) => {
+      const custObj = customer.toObject();
+      const billTotal = billMap[customer._id.toString()] || 0;
+      const returnTotal = returnMap[customer._id.toString()] || 0;
+      custObj.totalBillAmount = Number((billTotal - returnTotal).toFixed(2));
+      return custObj;
+    });
 
     const pagination = {
       page,
@@ -377,7 +554,7 @@ export const getCustomersByRating = async (req, res) => {
     return res.json(
       responseHandler.success(
         {
-          customers,
+          customers: customersWithBillAmount,
           pagination,
           filters: {
             rating: rating !== undefined && rating !== "" ? parseFloat(rating) : null,
@@ -462,6 +639,7 @@ const customer = await User.create(customerData);
 
     // Manually add customerId to the response object for frontend clarity
     customerResponse.customerId = customerResponse._id;
+    customerResponse.totalBillAmount = 0;
 
     return res.status(201).json(
       responseHandler.success(

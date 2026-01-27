@@ -42,3 +42,12 @@ export const productValidationRules = [
     .isIn(["active", "inactive"])
     .withMessage("Product status must be either 'active' or 'inactive'"),
 ];
+// Validation rules for stock thresholds only
+export const stockThresholdValidationRules = [
+  body("lowStockThreshold")
+    .isInt({ min: 0 })
+    .withMessage("Low stock threshold must be a non-negative integer"),
+  body("maxStockThreshold")
+    .isInt({ min: 0 })
+    .withMessage("Max stock threshold must be a non-negative integer"),
+];

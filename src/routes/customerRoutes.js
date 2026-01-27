@@ -8,10 +8,25 @@ import {
   getCustomersByRating,
   getCustomersByDateRange,
   updateCustomerRating,
+  getCustomerRatingSettings,
+  saveCustomerRatingSettings,
 } from "../controllers/customerController.js";
 
 const router = express.Router();
 
+router.get(
+  "/rating-settings",
+  protect,
+  checkPermission("customer"),
+  getCustomerRatingSettings
+);
+
+router.post(
+  "/rating-settings",
+  protect,
+  checkPermission("customer"),
+  saveCustomerRatingSettings
+);
 router.post("/", protect, checkPermission("customer"), addCustomer);
 router.get("/date-range", protect, checkPermission("customer"), getCustomersByDateRange);
 router.get("/rating", protect, checkPermission("customer"), getCustomersByRating);
