@@ -47,15 +47,9 @@ export const getAllCustomers = async (req, res) => {
 
     // Calculate total bill amount for each customer
     const customerIds = customers.map((c) => c._id);
-    const [billStats, returnStats] = await Promise.all([
-      Bill.aggregate([
-        { $match: { customerId: { $in: customerIds } } },
-        { $group: { _id: "$customerId", totalAmount: { $sum: "$netAmount" } } },
-      ]),
-      SaleReturn.aggregate([
-        { $match: { customerId: { $in: customerIds } } },
-        { $group: { _id: "$customerId", totalAmount: { $sum: "$totalAmount" } } },
-      ]),
+    const billStats = await Bill.aggregate([
+      { $match: { customerId: { $in: customerIds } } },
+      { $group: { _id: "$customerId", totalAmount: { $sum: "$netAmount" } } },
     ]);
 
     const billMap = {};
@@ -63,16 +57,10 @@ export const getAllCustomers = async (req, res) => {
       billMap[stat._id.toString()] = stat.totalAmount;
     });
 
-    const returnMap = {};
-    returnStats.forEach((stat) => {
-      returnMap[stat._id.toString()] = stat.totalAmount;
-    });
-
     const customersWithBillAmount = customers.map((customer) => {
       const custObj = customer.toObject();
       const billTotal = billMap[customer._id.toString()] || 0;
-      const returnTotal = returnMap[customer._id.toString()] || 0;
-      custObj.totalBillAmount = Number((billTotal - returnTotal).toFixed(2));
+      custObj.totalBillAmount = Number(billTotal.toFixed(2));
       return custObj;
     });
 
@@ -261,12 +249,18 @@ export const deleteCustomer = async (req, res) => {
         .json(responseHandler.error("Customer not found"));
     }
 
+    // Delete associated bills and sale returns
+    await Promise.all([
+      Bill.deleteMany({ customerId }),
+      SaleReturn.deleteMany({ customerId }),
+    ]);
+
     return res.json(
       responseHandler.success(
         {
           customerId,
         },
-        "Customer deleted successfully"
+        "Customer and associated data deleted successfully"
       )
     );
   } catch (error) {
@@ -346,15 +340,9 @@ export const getCustomersByDateRange = async (req, res) => {
 
     // Calculate total bill amount for each customer
     const customerIds = customers.map((c) => c._id);
-    const [billStats, returnStats] = await Promise.all([
-      Bill.aggregate([
-        { $match: { customerId: { $in: customerIds } } },
-        { $group: { _id: "$customerId", totalAmount: { $sum: "$netAmount" } } },
-      ]),
-      SaleReturn.aggregate([
-        { $match: { customerId: { $in: customerIds } } },
-        { $group: { _id: "$customerId", totalAmount: { $sum: "$totalAmount" } } },
-      ]),
+    const billStats = await Bill.aggregate([
+      { $match: { customerId: { $in: customerIds } } },
+      { $group: { _id: "$customerId", totalAmount: { $sum: "$netAmount" } } },
     ]);
 
     const billMap = {};
@@ -362,16 +350,10 @@ export const getCustomersByDateRange = async (req, res) => {
       billMap[stat._id.toString()] = stat.totalAmount;
     });
 
-    const returnMap = {};
-    returnStats.forEach((stat) => {
-      returnMap[stat._id.toString()] = stat.totalAmount;
-    });
-
     const customersWithBillAmount = customers.map((customer) => {
       const custObj = customer.toObject();
       const billTotal = billMap[customer._id.toString()] || 0;
-      const returnTotal = returnMap[customer._id.toString()] || 0;
-      custObj.totalBillAmount = Number((billTotal - returnTotal).toFixed(2));
+      custObj.totalBillAmount = Number(billTotal.toFixed(2));
       return custObj;
     });
 
@@ -481,15 +463,9 @@ export const getCustomersByRating = async (req, res) => {
 
     // Calculate total bill amount for each customer
     const customerIds = customers.map((c) => c._id);
-    const [billStats, returnStats] = await Promise.all([
-      Bill.aggregate([
-        { $match: { customerId: { $in: customerIds } } },
-        { $group: { _id: "$customerId", totalAmount: { $sum: "$netAmount" } } },
-      ]),
-      SaleReturn.aggregate([
-        { $match: { customerId: { $in: customerIds } } },
-        { $group: { _id: "$customerId", totalAmount: { $sum: "$totalAmount" } } },
-      ]),
+    const billStats = await Bill.aggregate([
+      { $match: { customerId: { $in: customerIds } } },
+      { $group: { _id: "$customerId", totalAmount: { $sum: "$netAmount" } } },
     ]);
 
     const billMap = {};
@@ -497,16 +473,10 @@ export const getCustomersByRating = async (req, res) => {
       billMap[stat._id.toString()] = stat.totalAmount;
     });
 
-    const returnMap = {};
-    returnStats.forEach((stat) => {
-      returnMap[stat._id.toString()] = stat.totalAmount;
-    });
-
     const customersWithBillAmount = customers.map((customer) => {
       const custObj = customer.toObject();
       const billTotal = billMap[customer._id.toString()] || 0;
-      const returnTotal = returnMap[customer._id.toString()] || 0;
-      custObj.totalBillAmount = Number((billTotal - returnTotal).toFixed(2));
+      custObj.totalBillAmount = Number(billTotal.toFixed(2));
       return custObj;
     });
 

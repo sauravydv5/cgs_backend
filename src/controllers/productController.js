@@ -29,6 +29,16 @@ export const addProduct = async (req, res) => {
     category = resolveId(category);
     subcategory = resolveId(subcategory);
 
+    // If subcategory is a string but not a valid ObjectId, try to find it by name
+    if (subcategory && typeof subcategory === 'string' && !mongoose.Types.ObjectId.isValid(subcategory)) {
+      const subCat = await Subcategory.findOne({ name: { $regex: new RegExp(`^${subcategory}$`, "i") } });
+      if (subCat) {
+        subcategory = subCat._id;
+      } else {
+        return res.status(400).json(responseHandler.error(`Subcategory "${subcategory}" not found.`));
+      }
+    }
+
     // Validate Subcategory if provided
     if (subcategory && mongoose.Types.ObjectId.isValid(subcategory)) {
       const subCatExists = await Subcategory.findById(subcategory);
@@ -37,7 +47,7 @@ export const addProduct = async (req, res) => {
 
     const product = new Product({ ...rest, category, subcategory });
     const savedProduct = await product.save();
-    
+
     // Populate category and subcategory
     const populatedProduct = await Product.findById(savedProduct._id)
       .populate("category", "name")
@@ -54,7 +64,10 @@ export const addProduct = async (req, res) => {
       .status(201)
       .json(responseHandler.success(populatedProduct, "Product added successfully"));
   } catch (err) {
-    return res.status(400).json(responseHandler.error(err.message));
+    if (err.name === 'ValidationError') {
+      return res.status(400).json(responseHandler.error(err.message));
+    }
+    return res.status(500).json(responseHandler.error(err.message));
   }
 };
 
@@ -236,7 +249,7 @@ export const getAllProducts = async (req, res) => {
           }
         })
         .select(
-          "brandName productName mrp discount stock image description category subcategory packSize size hsnCode itemCode costPrice gst"
+          "brandName productName mrp discount stock image description category subcategory packSize size hsnCode itemCode costPrice gst lowStockThreshold maxStockThreshold"
         )
         .sort(sortOptions)
         .skip(offset)
@@ -272,7 +285,17 @@ export const updateProduct = async (req, res) => {
     }
 
     if (req.body.subcategory !== undefined) {
-      product.subcategory = resolveId(req.body.subcategory);
+      let subcategoryValue = resolveId(req.body.subcategory);
+      // If subcategory is a string but not a valid ObjectId, try to find it by name
+      if (subcategoryValue && typeof subcategoryValue === 'string' && !mongoose.Types.ObjectId.isValid(subcategoryValue)) {
+        const subCat = await Subcategory.findOne({ name: { $regex: new RegExp(`^${subcategoryValue}$`, "i") } });
+        if (subCat) {
+          subcategoryValue = subCat._id;
+        } else {
+          return res.status(400).json(responseHandler.error(`Subcategory "${subcategoryValue}" not found.`));
+        }
+      }
+      product.subcategory = subcategoryValue;
     }
 
     if (product.subcategory && mongoose.Types.ObjectId.isValid(product.subcategory)) {
@@ -288,7 +311,7 @@ export const updateProduct = async (req, res) => {
     });
 
     const updatedProduct = await product.save();
-    
+
     const populatedProduct = await Product.findById(updatedProduct._id)
       .populate("category", "name")
       .populate({

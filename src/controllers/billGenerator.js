@@ -34,26 +34,17 @@ export const generateBillByCustomer = async (req, res) => {
       }
     });
 
-    let allItems = [];
-    bills.forEach((bill) => {
-      if (Array.isArray(bill.items)) {
-        allItems = allItems.concat(
-          bill.items.map((item) => ({
-            ...item.toObject(),
-            billNo: bill.billNo,
-            billDate: bill.createdAt,
-          }))
-        );
-      }
-    });
-
+    const returnedItemKeys = new Set();
     let allReturnItems = [];
     saleReturns.forEach((ret) => {
       if (Array.isArray(ret.items)) {
         allReturnItems = allReturnItems.concat(
           ret.items.map((item) => {
             const key = `${ret.billId.toString()}_${item.productId?._id?.toString()}`;
+            returnedItemKeys.add(key); // Track returned items
+
             const originalItem = billItemMap.get(key);
+
             return {
               ...item.toObject(),
               returnId: ret.returnId,
@@ -61,11 +52,27 @@ export const generateBillByCustomer = async (req, res) => {
               returnDate: ret.date,
               itemName: item.productId?.productName || "N/A",
               hsnCode: item.productId?.hsnCode || "-",
-              discountPercent: originalItem?.discountPercent || 0,
-              gstPercent: originalItem?.gstPercent || 0,
+              discountPercent: Number(item.discountPercent ?? originalItem?.discountPercent ?? 0),
+              gstPercent: Number(item.gstPercent ?? originalItem?.gstPercent ?? 0),
             };
           })
         );
+      }
+    });
+
+    let allItems = [];
+    bills.forEach((bill) => {
+      if (Array.isArray(bill.items)) {
+        // Filter out items that are in the return list
+        const nonReturnedItems = bill.items.filter(item => {
+          const key = `${bill._id.toString()}_${item.productId.toString()}`;
+          return !returnedItemKeys.has(key);
+        });
+        allItems = allItems.concat(nonReturnedItems.map((item) => ({
+            ...item.toObject(),
+            billNo: bill.billNo,
+            billDate: bill.createdAt,
+        })));
       }
     });
 
@@ -86,88 +93,90 @@ export const generateBillByCustomer = async (req, res) => {
 };
 
 const getInvoiceTemplate = (customer, items, returnItems) => {
-  // Calculate per-item values and totals
+  // ✅ Calculate Sale Items (SL) - matching frontend exactly
   const calculatedItems = items.map((item) => {
-    const qty = Number(item.qty) || 0;
-    const rate = Number(item.rate) || 0;
-    const discountPercent = Number(item.discountPercent) || 0;
+    const qty = Number(item.qty || 0);
+    const rate = Number(item.rate || item.mrp || 0);
+    const discountPercent = Number(item.discountPercent || 0);
+    const gstPercent = Number(item.gstPercent || 0);
 
-    const base = qty * rate; // gross amount before discount
-    const discount = (base * discountPercent) / 100; // discount amount
-    const taxable = base - discount; // taxable after discount
-
-    // Determine GST rate (existing business rule)
-    const gstRate = item.gstPercent ?? (item.hsnCode === "3304" ? 5 : 3);
-    const cgst = (taxable * gstRate) / 200; // half of gstRate
-    const sgst = (taxable * gstRate) / 200;
-
-    const finalAmount = taxable + cgst + sgst; // total for this line
+    // ✅ Frontend calculation logic
+    const gross = rate * qty;
+    const discountAmount = (gross * discountPercent) / 100;
+    const taxable = gross - discountAmount;
+    const cgst = (taxable * (gstPercent / 2)) / 100;
+    const sgst = (taxable * (gstPercent / 2)) / 100;
+    const total = taxable + cgst + sgst;
 
     return {
       ...item,
       qty,
       rate,
-      base,
-      discount,
-      taxable,
-      cgst,
-      sgst,
-      finalAmount,
-      gstRate,
+      discountPercent,
+      gstPercent,
+      base: gross,
+      discount: discountAmount,
+      taxable: taxable,
+      cgst: cgst,
+      sgst: sgst,
+      finalAmount: total,
     };
   });
 
-  // Totals
-  const totalGross = calculatedItems.reduce((s, it) => s + (it.base || 0), 0);
-  const totalDiscount = calculatedItems.reduce((s, it) => s + (it.discount || 0), 0);
-  const totalTaxable = calculatedItems.reduce((s, it) => s + (it.taxable || 0), 0);
-  const totalCGST = calculatedItems.reduce((s, it) => s + (it.cgst || 0), 0);
-  const totalSGST = calculatedItems.reduce((s, it) => s + (it.sgst || 0), 0);
-  const totalSalesValue = calculatedItems.reduce(
-    (s, it) => s + (it.finalAmount || 0),
-    0
-  );
+  // ✅ Calculate Return Items (SR) - matching frontend exactly
+  const calculatedReturnItems = returnItems.map((item) => {
+    const qty = Number(item.qty || 0);
+    const rate = Number(item.rate || item.mrp || 0);
+    const discountPercent = Number(item.discountPercent || 0);
+    const gstPercent = Number(item.gstPercent || 0);
 
-  // Calculate Return Items with Discount
-const calculatedReturnItems = returnItems.map((item) => {
-  const qty = Number(item.qty) || 0;
-  const rate = Number(item.rate) || 0;
-  const discountPercent = Number(item.discountPercent) || 0;
+    // ✅ Frontend calculation logic
+    const gross = rate * qty;
+    const discountAmount = (gross * discountPercent) / 100;
+    const taxable = gross - discountAmount;
+    const cgst = (taxable * (gstPercent / 2)) / 100;
+    const sgst = (taxable * (gstPercent / 2)) / 100;
+    const total = taxable + cgst + sgst;
 
-  const base = qty * rate;
-  const discount = (base * discountPercent) / 100;
-  const taxable = base - discount;
+    return {
+      ...item,
+      qty,
+      rate,
+      discountPercent,
+      gstPercent,
+      base: gross,
+      discountAmount: discountAmount,
+      taxable: taxable,
+      cgst: cgst,
+      sgst: sgst,
+      finalAmount: total,
+    };
+  });
 
-  const gstRate = item.gstPercent ?? (item.hsnCode === "3304" ? 5 : 3);
-  const cgst = taxable * gstRate / 200;
-  const sgst = taxable * gstRate / 200;
-
-  const finalAmount = taxable + cgst + sgst;
-
-  return {
-    ...item,
-    qty,
-    rate,
-    discountPercent,
-    discountAmount: discount,
-    taxable,
-    cgst,
-    sgst,
-    finalAmount,
+  // ✅ Calculate Totals - EXACTLY matching frontend calculateTotals function
+  const calculateTotals = (itemsArray) => {
+    return itemsArray.reduce(
+      (acc, item) => {
+        acc.amount += item.base || 0;
+        acc.discount += item.discount || item.discountAmount || 0;
+        acc.tax += (item.cgst || 0) + (item.sgst || 0);
+        acc.total += item.finalAmount || 0;
+        return acc;
+      },
+      { amount: 0, discount: 0, tax: 0, total: 0 }
+    );
   };
-});
 
+  const sl = calculateTotals(calculatedItems);
+  const sr = calculateTotals(calculatedReturnItems);
 
-  // Return Totals
-  const totalReturnValue = calculatedReturnItems.reduce(
-    (s, it) => s + (it.finalAmount || 0),
-    0
-  );
-
-  // Final Net Amount
-  const netPayable = totalSalesValue - totalReturnValue;
-
-  const billNumbers = [...new Set(items.map((item) => item.billNo))].join(", ");
+  // ✅ EXACTLY matching frontend calculation
+  const totalGross = sl.amount + sr.amount;           // AMOUNT
+  const totalDiscount = sl.discount + sr.discount;    // DIS
+  const amountAfterDiscount = totalGross - totalDiscount; // AMT AFT DIS
+  const totalGST = sl.tax + sr.tax;                   // GST
+  const grossTotal = sl.total + sr.total;             // Total Sale Value
+  const netPayable = grossTotal - sr.total;           // NET PAYABLE
 
   const now = new Date();
   const currentDate = now.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" });
@@ -191,8 +200,9 @@ const calculatedReturnItems = returnItems.map((item) => {
             <th>HSN CODE</th>
             <th>QTY</th>
             <th>RATE</th>
+            <th>CGST</th>
+            <th>SGST</th>
             <th>DIS%</th>
-            <th>DIS AMT</th>
             <th>AMT</th>
           </tr>
         </thead>
@@ -206,9 +216,10 @@ const calculatedReturnItems = returnItems.map((item) => {
             <td>${item.hsnCode || "-"}</td>
             <td class="center">${item.qty}</td>
             <td class="right">₹${(item.rate || 0).toFixed(2)}</td>
-            <td class="center">${item.discountPercent}%</td>
-            <td class="right">₹${item.discountAmount.toFixed(2)}</td>
-            <td class="right">₹${item.finalAmount.toFixed(2)}</td>
+            <td class="right">₹${(item.cgst || 0).toFixed(2)}</td>
+            <td class="right">₹${(item.sgst || 0).toFixed(2)}</td>
+            <td class="center">${item.discountPercent || 0}%</td>
+            <td class="right">₹${(item.finalAmount || 0).toFixed(2)}</td>
           </tr>`
             )
             .join("")}
@@ -239,10 +250,13 @@ const calculatedReturnItems = returnItems.map((item) => {
     table { width: 100%; line-height: inherit; text-align: left; border-collapse: collapse; }
     table th { background: #f8f8f8; font-weight: bold; padding: 10px; border: 1px solid #eee; font-size: 12px; }
     table td { padding: 10px; border: 1px solid #eee; font-size: 12px; }
+    .center { text-align: center; }
+    .right { text-align: right; }
     .totals { margin-top: 20px; display: flex; justify-content: flex-end; }
     .totals-table { width: 300px; }
     .totals-table td { padding: 5px 10px; }
     .total-row { font-weight: bold; font-size: 16px; border-top: 2px solid #333; }
+    .return-row { color: #d32f2f; }
     .footer { margin-top: 30px; font-size: 12px; text-align: center; color: #555; }
   </style>
 </head>
@@ -273,9 +287,9 @@ const calculatedReturnItems = returnItems.map((item) => {
 
   <div style="text-align:right;">
     <strong>Statement</strong><br/>
-    <strong>Bill No:</strong> ${billNumbers}<br/>
+    <strong>Bill No:</strong> ${items[0]?.billNo || "-"}<br/>
     <strong>Date:</strong> ${currentDate}<br/>
-    <strong>Issued Time:</strong> ${currentTime}
+    <strong>Issue Time:</strong> ${currentTime}
   </div>
 </div>
 
@@ -288,8 +302,9 @@ const calculatedReturnItems = returnItems.map((item) => {
   <th>HSN CODE</th>
   <th>QTY</th>
   <th>RATE</th>
+  <th>CGST</th>
+  <th>SGST</th>
   <th>DIS%</th>
-  <th>DIS AMT</th>
   <th>AMT</th>
 </tr>
 </thead>
@@ -303,8 +318,9 @@ ${calculatedItems
   <td>${item.hsnCode || "-"}</td>
   <td class="center">${item.qty}</td>
   <td class="right">₹${item.rate.toFixed(2)}</td>
+  <td class="right">₹${(item.cgst || 0).toFixed(2)}</td>
+  <td class="right">₹${(item.sgst || 0).toFixed(2)}</td>
   <td class="center">${item.discountPercent || 0}%</td>
-  <td class="right">₹${(item.discount || 0).toFixed(2)}</td>
   <td class="right">₹${(item.finalAmount || 0).toFixed(2)}</td>
 </tr>`
   )
@@ -326,33 +342,37 @@ ${returnItemsHtml}
 </tr>
 <tr>
   <td>AMT AFT DIS:</td>
-  <td style="text-align:right;">₹${totalTaxable.toFixed(2)}</td>
+  <td style="text-align:right;">₹${amountAfterDiscount.toFixed(2)}</td>
 </tr>
 <tr>
-  <td>CGST:</td>
-  <td style="text-align:right;">₹${totalCGST.toFixed(2)}</td>
-</tr>
-<tr>
-  <td>SGST:</td>
-  <td style="text-align:right;">₹${totalSGST.toFixed(2)}</td>
+  <td>GST:</td>
+  <td style="text-align:right;">₹${totalGST.toFixed(2)}</td>
 </tr>
 <tr style="font-weight: bold; border-top: 1px solid #eee;">
   <td>Total Sale Value:</td>
-  <td style="text-align:right;">₹${totalSalesValue.toFixed(2)}</td>
+  <td style="text-align:right;">₹${grossTotal.toFixed(2)}</td>
 </tr>
 ${
   returnItems.length > 0
     ? `
-<tr>
+<tr class="return-row">
+  <td>Return Discount:</td>
+  <td style="text-align:right;">- ₹${sr.discount.toFixed(2)}</td>
+</tr>
+<tr class="return-row">
+  <td>Return GST:</td>
+  <td style="text-align:right;">- ₹${sr.tax.toFixed(2)}</td>
+</tr>
+<tr class="return-row">
   <td>Return Value:</td>
-  <td style="text-align:right;">- ₹${totalReturnValue.toFixed(2)}</td>
+  <td style="text-align:right;">- ₹${sr.total.toFixed(2)}</td>
 </tr>
 `
     : ""
 }
 <tr class="total-row">
-  <td>NET PAYABLE:</td>
-  <td style="text-align:right;">₹${netPayable.toFixed(2)}</td>
+  <td>${netPayable >= 0 ? 'NET PAYABLE:' : 'REFUND AMOUNT:'}</td>
+  <td style="text-align:right;${netPayable < 0 ? ' color: #2e7d32;' : ''}">₹${Math.abs(netPayable).toFixed(2)}</td>
 </tr>
 </table>
 </div>

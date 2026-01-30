@@ -18,6 +18,8 @@ const billItemSchema = new mongoose.Schema(
     mrp: Number,
     rate: Number,
 
+    grossAmount: Number,
+
     discountPercent: Number,
     discountAmount: Number,
 

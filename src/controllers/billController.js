@@ -76,6 +76,7 @@ export const addBill = async (req, res) => {
           rate: item.rate,
           discountPercent: item.discountPercent,
           freeQty: item.freeQty,
+          gstPercent: item.gstPercent,
         });
       });
 
@@ -99,7 +100,7 @@ export const addBill = async (req, res) => {
 
     let finalItems = [];
     let totalQty = 0;
-    let grossAmount = 0;
+    let totalGrossAmount = 0;
     let totalDiscount = 0;
     let taxableAmount = 0;
     let totalCGST = 0;
@@ -117,17 +118,15 @@ export const addBill = async (req, res) => {
       const discountPercent = Number(
         item.discountPercent ?? product.discount ?? 0
       );
-      const gstPercent = Number(product.gst || 0);
+      const gstPercent = Number(item.gstPercent ?? product.gst ?? 0);
 
       const gross = round2(rate * qty);
       const discountAmount = round2((gross * discountPercent) / 100);
       const taxable = round2(gross - discountAmount);
 
-      const gstAmount = round2((taxable * gstPercent) / 100);
-      const cgst = round2(gstAmount / 2);
-      const sgst = round2(gstAmount / 2);
-
-      const total = round2(taxable + gstAmount);
+      const cgst = round2((taxable * (gstPercent / 2)) / 100);
+      const sgst = round2((taxable * (gstPercent / 2)) / 100);
+      const total = round2(taxable + cgst + sgst);
 
       finalItems.push({
   productId: product._id,
@@ -165,7 +164,7 @@ export const addBill = async (req, res) => {
 
 
       totalQty += qty;
-      grossAmount = round2(grossAmount + gross);
+      totalGrossAmount = round2(totalGrossAmount + gross);
       totalDiscount = round2(totalDiscount + discountAmount);
       taxableAmount = round2(taxableAmount + taxable);
       totalCGST = round2(totalCGST + cgst);
@@ -209,7 +208,7 @@ export const addBill = async (req, res) => {
       // UPDATE EXISTING BILL
       existingBill.items = finalItems;
       existingBill.totalQty = totalQty;
-      existingBill.grossAmount = grossAmount;
+      existingBill.grossAmount = totalGrossAmount;
       existingBill.totalDiscount = totalDiscount;
       existingBill.taxableAmount = taxableAmount;
       existingBill.totalCGST = totalCGST;
@@ -229,7 +228,7 @@ export const addBill = async (req, res) => {
         billDate: finalBillDate,
         items: finalItems,
         totalQty,
-        grossAmount,
+        grossAmount: totalGrossAmount,
         totalDiscount,
         taxableAmount,
         totalCGST,
@@ -400,7 +399,7 @@ export const updateBill = async (req, res) => {
     const round2 = (n) => Math.round(n * 100) / 100;
 
     let totalQty = 0;
-    let grossAmount = 0;
+    let totalGrossAmount = 0;
     let totalDiscount = 0;
     let taxableAmount = 0;
     let totalCGST = 0;
@@ -417,16 +416,15 @@ export const updateBill = async (req, res) => {
       const gross = round2(rate * qty);
       const taxable = round2(gross - discountAmount);
 
-      const gstPercent = String(item.hsnCode) === "3304" ? 5 : 3;
-
-      const cgst = round2((taxable * gstPercent) / 200);
-      const sgst = round2((taxable * gstPercent) / 200);
+      const gstPercent = Number(item.gstPercent || 0);
+      const cgst = round2((taxable * (gstPercent / 2)) / 100);
+      const sgst = round2((taxable * (gstPercent / 2)) / 100);
       const igst = round2(item.igst || 0);
 
       const total = round2(taxable + cgst + sgst + igst);
 
       totalQty += qty;
-      grossAmount = round2(grossAmount + gross);
+      totalGrossAmount = round2(totalGrossAmount + gross);
       totalDiscount = round2(totalDiscount + discountAmount);
       taxableAmount = round2(taxableAmount + taxable);
       totalCGST = round2(totalCGST + cgst);
@@ -436,6 +434,7 @@ export const updateBill = async (req, res) => {
       return {
         ...item,
         qty,
+        grossAmount: gross,
         rate,
         discountPercent,
         discountAmount,
@@ -467,7 +466,7 @@ export const updateBill = async (req, res) => {
     bill.items = updatedItems;
 
     bill.totalQty = totalQty;
-    bill.grossAmount = grossAmount;
+    bill.grossAmount = totalGrossAmount;
     bill.totalDiscount = totalDiscount;
     bill.taxableAmount = taxableAmount;
     bill.totalCGST = totalCGST;

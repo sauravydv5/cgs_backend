@@ -14,33 +14,42 @@ export const addSaleReturn = async (req, res) => {
       return res.status(400).json({ success: false, message: "Bill ID and items are required" });
     }
 
-    // 1. Find Original Bill
-    // Step 1: Find the original bill using the provided billId and populate customer details.
-    // This is crucial for linking the return to the original transaction and customer.
-    const bill = await Bill.findById(billId).populate("customerId");
+    // 1. Find Original Bill (by _id or billNo)
+    let bill;
+    if (mongoose.Types.ObjectId.isValid(billId)) {
+      bill = await Bill.findById(billId).populate("customerId");
+    }
+    if (!bill) {
+      bill = await Bill.findOne({ billNo: billId }).populate("customerId");
+    }
     if (!bill) {
       return res.status(404).json({ success: false, message: "Bill not found" });
     }
 
     // 🔴 STOP duplicate product return
-const existingReturn = await SaleReturn.findOne({ billId: bill._id });
+    const existingReturns = await SaleReturn.find({ billId: bill._id });
 
-if (existingReturn) {
-  for (const item of items) {
-    const productId = item.productId || item.product;
-
-    const alreadyReturned = existingReturn.items.some(
-      (i) => i.productId.toString() === productId.toString()
-    );
-
-    if (alreadyReturned) {
-      return res.status(400).json({
-        success: false,
-        message: "Return already exists!",
+    if (existingReturns.length > 0) {
+      const returnedProductIds = new Set();
+      existingReturns.forEach(ret => {
+        ret.items.forEach(i => returnedProductIds.add(i.productId.toString()));
       });
+
+      for (const item of items) {
+        const rawProductId = item.productId || item.product;
+        const resolvedProductId = (typeof rawProductId === 'object' && rawProductId !== null)
+            ? rawProductId._id || rawProductId.id
+            : rawProductId;
+
+        if (resolvedProductId && returnedProductIds.has(resolvedProductId.toString())) {
+          const product = await Product.findById(resolvedProductId);
+          return res.status(400).json({
+            success: false,
+            message: `Item "${product?.productName || 'Unknown'}" has already been returned for this bill.`,
+          });
+        }
+      }
     }
-  }
-}
 
 
     // 2. Generate Return ID (RET-001)
@@ -60,6 +69,8 @@ if (existingReturn) {
       bill.items.forEach((it) => {
         if (it.productId) {
           billItemMap.set(it.productId.toString(), {
+            qty: it.qty || 0,
+            rate: it.rate || 0,
             discountPercent: it.discountPercent || 0,
             gstPercent: it.gstPercent,
             hsnCode: it.hsnCode,
@@ -75,11 +86,14 @@ if (existingReturn) {
     // Step 3: Loop through each item being returned.
     // Validate the product, calculate amounts, and update the product's stock.
     for (const item of items) {
-      // Allow both 'productId' and 'product' for consistency with other modules
-      const productId = item.productId || item.product;
-      if (!productId) {
+      // Safely resolve product ID from string or object
+      let rawProductId = item.productId || item.product;
+      if (!rawProductId) {
         return res.status(400).json({ success: false, message: "Each return item must have a product ID." });
       }
+      const productId = (typeof rawProductId === 'object' && rawProductId !== null)
+        ? rawProductId._id || rawProductId.id
+        : rawProductId;
 
       // Find the product in the database.
       const product = await Product.findById(productId);
@@ -87,17 +101,31 @@ if (existingReturn) {
         return res.status(404).json({ success: false, message: `Product not found: ${productId}` });
       }
 
-      // Support both 'qty' and 'quantity'
-      // Support both 'qty' and 'quantity' keys from the request body for flexibility.
+      // Get quantity from request
       const qty = Number(item.qty || item.quantity || 0);
-      const rate = Number(item.rate || 0);
 
-      // 🔥 SAME LOGIC AS BILL GENERATOR
-      const billItem = billItemMap.get(productId.toString()) || {};
-      const discountPercent = billItem.discountPercent || 0;
-      const gstRate =
-        billItem.gstPercent ??
-        (billItem.hsnCode === "3304" ? 5 : 3);
+      // 🔥 VALIDATE against original bill item
+      const billItem = billItemMap.get(productId.toString());
+
+      let rate, discountPercent, gstRate;
+
+      if (billItem) {
+        if (qty > billItem.qty) {
+          return res.status(400).json({
+            success: false,
+            message: `Return quantity (${qty}) for "${product.productName}" cannot exceed sold quantity (${billItem.qty}).`,
+          });
+        }
+        // Use original bill's rate and discount as source of truth
+        rate = Number(billItem.rate || 0);
+        discountPercent = Number(billItem.discountPercent || 0);
+        gstRate = billItem.gstPercent ?? (billItem.hsnCode === "3304" ? 5 : 3);
+      } else {
+        // Fallback: If item not found in bill, use provided values or defaults
+        rate = Number(item.rate || product.mrp || 0);
+        discountPercent = Number(item.discountPercent || 0);
+        gstRate = Number(item.gstPercent || product.gst || (product.hsnCode === "3304" ? 5 : 3));
+      }
 
       const baseAmount = qty * rate;
       const discountAmount = (baseAmount * discountPercent) / 100;

@@ -53,7 +53,12 @@ export const getDashboardData = async (req, res) => {
     const threshold = settings?.threshold || 10;
 
     const lowStockCount = await Product.countDocuments({
-      stock: { $gt: 0, $lte: threshold },
+      $expr: {
+        $and: [
+          { $gt: ["$stock", 0] },
+          { $lte: ["$stock", { $ifNull: ["$lowStockThreshold", threshold] }] },
+        ],
+      },
     });
 
     /* =========================
@@ -185,7 +190,12 @@ export const getDashboardDataByDateRange = async (req, res) => {
     const threshold = settings?.threshold || 10;
 
     const lowStockCount = await Product.countDocuments({
-      stock: { $gt: 0, $lte: threshold },
+      $expr: {
+        $and: [
+          { $gt: ["$stock", 0] },
+          { $lte: ["$stock", { $ifNull: ["$lowStockThreshold", threshold] }] },
+        ],
+      },
     });
 
     /* =========================
