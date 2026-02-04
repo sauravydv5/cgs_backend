@@ -186,18 +186,25 @@ export const addBill = async (req, res) => {
     const netAmount = round2(
       taxableAmount + totalCGST + totalSGST + roundOff
     );
-    const balanceAmount = round2(netAmount - paidAmount);
+    
+    let finalPaidAmount = paidAmount;
+    let finalBalanceAmount = round2(netAmount - finalPaidAmount);
 
     let paymentStatus =
       providedStatus === "Draft"
         ? "Draft"
-        : balanceAmount === 0
+        : finalBalanceAmount === 0
         ? "Paid"
-        : paidAmount > 0
+        : finalPaidAmount > 0
         ? "Partial"
-        : existingBill // If updating a draft and not fully paid, keep it Draft
-        ? existingBill.paymentStatus
+        : existingBill && existingBill.paymentStatus === "Draft"
+        ? "Draft"
         : "Unpaid";
+
+    if (paymentStatus === "Paid") {
+      finalPaidAmount = netAmount;
+      finalBalanceAmount = 0;
+    }
 
     const finalBillDate = billDate
       ? billDate
@@ -214,9 +221,9 @@ export const addBill = async (req, res) => {
       existingBill.totalCGST = totalCGST;
       existingBill.totalSGST = totalSGST;
       existingBill.netAmount = netAmount;
-      existingBill.balanceAmount = balanceAmount;
+      existingBill.balanceAmount = finalBalanceAmount;
       existingBill.paymentStatus = paymentStatus;
-      if (paidAmount) existingBill.paidAmount = paidAmount;
+      existingBill.paidAmount = finalPaidAmount;
       if (notes) existingBill.notes = notes;
       
       bill = await existingBill.save();
@@ -237,8 +244,8 @@ export const addBill = async (req, res) => {
         roundOff,
         netAmount,
         paymentMode,
-        paidAmount,
-        balanceAmount,
+        paidAmount: finalPaidAmount,
+        balanceAmount: finalBalanceAmount,
         paymentStatus,
         notes,
       });
